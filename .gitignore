@@ -1,0 +1,11 @@
+node_modules/
+dist/
+frontend/dist/
+.env
+.env.*
+!.env.example
+.DS_Store
+npm-debug.log*
+frontend/src/assets/F1 Opening Titles 2026.mp4
+backend/.venv/
+__pycache__/

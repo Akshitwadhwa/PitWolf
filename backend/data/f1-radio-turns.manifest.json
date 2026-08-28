@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-08-17T18:41:16.553Z",
+  "source_dataset": "MikCil/f1-team-radio",
+  "source_type": "metadata-parquet-query",
+  "source_rows_available": 1400,
+  "source_rows_scanned": 1400,
+  "filters": {
+    "minimum_session_year": 2019,
+    "raw_row_limit": 1000,
+    "representative_pages": null,
+    "seed": 20260818
+  },
+  "output": {
+    "raw_rows_selected": 1000,
+    "candidate_turns": 3735,
+    "auto_accepted": 903,
+    "unresolved_turns": 2832,
+    "manual_review_batch": 500
+  }
+}

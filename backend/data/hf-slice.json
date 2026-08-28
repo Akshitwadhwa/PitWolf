@@ -1,0 +1,302 @@
+[
+  {
+    "utterance": "Are you folks?",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver BREHAR01)"
+  },
+  {
+    "utterance": "Box, Brendan, box, box.",
+    "direction": "driver_to_engineer",
+    "intent": "pit request",
+    "team": "Unknown (Driver BREHAR01)"
+  },
+  {
+    "utterance": "Okay, Brennan, we've got to make this work now.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver BREHAR01)"
+  },
+  {
+    "utterance": "Okay Carlos, you're 7 tenths quicker than Van der Waal ahead on SuperSalt. Let's go and get him.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver CARSAI01)"
+  },
+  {
+    "utterance": "Okay, Carlos, everything looks clear from our side? Yes, it's normal now. Okay, understood.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver CARSAI01)"
+  },
+  {
+    "utterance": "What about a different plan? Not the original. How does that look?",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver DANRIC01)"
+  },
+  {
+    "utterance": "Right, let's settle into it mate, let's up the pace, let's go.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver DANRIC01)"
+  },
+  {
+    "utterance": "yellow turn one yellow turn one it's good pace mate yellow turn one Grosjean stopped exit turn two",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver DANRIC01)"
+  },
+  {
+    "utterance": "Okay, virtual safeguard, virtual safeguard. Okay, so you need to be positive on the delta, positive on the delta.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver DANRIC01)"
+  },
+  {
+    "utterance": "Kiki. Sasa Field. You do not need to say Field, just need to be positive on the Delta. Remember the sketch.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver DANRIC01)"
+  },
+  {
+    "utterance": "Two cars ahead, older tyres. Safety car is entering the pit lane now. Safety car is in this lap.",
+    "direction": "driver_to_engineer",
+    "intent": "tyre wear",
+    "team": "Unknown (Driver DANRIC01)"
+  },
+  {
+    "utterance": "Okay, so these tyres are going to be fine to the end. You did 26 laps on the first stint. Wear was good. These tyres will be good.",
+    "direction": "driver_to_engineer",
+    "intent": "tyre wear",
+    "team": "Unknown (Driver DANRIC01)"
+  },
+  {
+    "utterance": "How much do you think you are being held up? How much quicker do you think you are? Hard to say. Definitely a few taps.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver DANRIC01)"
+  },
+  {
+    "utterance": "Okay, definitely quicker. Yeah, I can see that, mate. You have got a bit of a gap now without any more back markers. So think about if you want to have a breathe. So you've got this lap and then seven more. This lap and seven more after this.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver DANRIC01)"
+  },
+  {
+    "utterance": "Sorry Esteban, balanced feedback, how is it going? It's going to be towards all the stern entry, but it's okay.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver ESTOCO01)"
+  },
+  {
+    "utterance": "Okay mate, struggling with the grip, we'll back off a little bit. All fine.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver FERALO01)"
+  },
+  {
+    "utterance": "It's very, very difficult to follow. So think about the strategy. Following is very difficult. Yes, Fernando, so far there's only been one overtake Bottas on Ocon.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver FERALO01)"
+  },
+  {
+    "utterance": "I cannot see the pit door. Hold for another three seconds maybe. Tires are okay. From left, giving up a little bit, but all under control.",
+    "direction": "driver_to_engineer",
+    "intent": "tyre wear",
+    "team": "Unknown (Driver FERALO01)"
+  },
+  {
+    "utterance": "Final reminder, speed limiter off, formation starts with two reds, remind lap mode race and K2 on after the burnout and race start with two reds.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Engine five, Kimi, engine five. Try to close, try to close.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Concentrate on position, Kimi. Concentrate on position. And K2On, K2On.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "We need a little bit more pace. Kimi is lapping 28-5. 28-5. Yourself, 28-7. So, is he not stopped yet? Not yet, not yet. You tell him, how did you first say to me that you are not in a hurry? Don't f me up with this. We are fine. Kimi, 28-5 is a target. We are fine. 28-5.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Kimi, you have a free stop if you want. Free stop for a new option. It's your choice. What do you think is the correct thing? It's correct, okay? It's a bit of a risk, Kimi.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Stay out, Kimi. Stay out.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "What guy is the Red Bull this month? He's on prime six lap old prime.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Good luck, Kimi. Good luck. Dice are good. Fuel is good.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Good pace, Kimi. Good pace. Keep it up.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "10 laps to go, Kimi, 10 laps to go. Good job, good job.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Have you tried to push me? Have you tried to push me?",
+    "direction": "engineer_to_driver",
+    "intent": "instruction",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Here's the LS, here's the LS.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "And SOC 2, Kimi. SOC 2, K1 available to protect. SOC 2.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Great race. We are P3, Gimmy P3, Sebastian P1, Hamilton P2. We were unlucky with the safety car, could have been an easy second place. Sorry, Tim. Thanks, Chris.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver KIMRAI01)"
+  },
+  {
+    "utterance": "Leclerc is closing on you, huh? Okay, but I'm circling fast with the oversteer.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LANSTR01)"
+  },
+  {
+    "utterance": "And you have the overtake available button available.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "So if you go menu-position2, menu-position2, when you can.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "So it looks like one of the Ferraris is stopping. So Rikelin in the pits now, tag mode three.",
+    "direction": "driver_to_engineer",
+    "intent": "pit request",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "Okay, we got the message, but box box.",
+    "direction": "driver_to_engineer",
+    "intent": "pit request",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "Metal still inside our safety car window by one second. We'll keep him there.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "There's a lot of liquid coming out the back of the car. Okay, copy. Okay, Lewis, so we are getting over temp on the PU, so we need to introduce some lifting coast. I need to push it to the lever right in a second.",
+    "direction": "engineer_to_driver",
+    "intent": "instruction",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "And if you need everything from the PU you can use Strat 14 1-4. And be mindful Strat 14 isn't a sustainable mode.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "Is there any traffic coming up? Negative. Traffic clear up until Hartley.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "I'll shut the TV up.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "What's that? We need to have some lift and coast for PU temperatures.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "Let's get ready to check out here.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "My rears are going off.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "Okay, Luz, sorry about that mate. I had that one in the bag. We'll review the situation and have a chat about it later.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver LEWHAM01)"
+  },
+  {
+    "utterance": "I'm not sure what to do. I'm just proud of seeing. Okay, stand by.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver MARERI01)"
+  },
+  {
+    "utterance": "Mode 7 and overtake if you need it. DRS enabled.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver MAXVER01)"
+  },
+  {
+    "utterance": "Hello K-Max. Yep.",
+    "direction": "driver_to_engineer",
+    "intent": "other",
+    "team": "Unknown (Driver MAXVER01)"
+  },
+  {
+    "utterance": "Okay, Max, can we have a status update please? Yeah, the rear tires are getting really hot, but that's a bit my problem. I've to close all the tools. And can I have a prompting update when you can? Yeah, a little bit less, half a degree or something. Understood.",
+    "direction": "driver_to_engineer",
+    "intent": "tyre wear",
+    "team": "Unknown (Driver MAXVER01)"
+  }
+]

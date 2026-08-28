@@ -1,0 +1,13 @@
+[
+  {"direction":"driver_to_engineer","utterance":"The rear is sliding badly through Turn 2 and I cannot get the power down.","intent":"rear_slip","turn":"T2","state":"FRUSTRATED","engineer_summary":"Rear traction loss at Turn 2","driver_display":"REAR SLIP T2"},
+  {"direction":"driver_to_engineer","utterance":"The front tyres are gone and the car is pushing wide.","intent":"front_grip","turn":"","state":"ELEVATED","engineer_summary":"Front grip loss","driver_display":"FRONT GRIP"},
+  {"direction":"driver_to_engineer","utterance":"I cannot hear you properly. The radio is breaking up.","intent":"radio_failure","turn":"","state":"URGENT","engineer_summary":"Driver cannot reliably receive radio","driver_display":"RADIO FAIL"},
+  {"direction":"driver_to_engineer","utterance":"It is starting to rain through the second sector.","intent":"rain_report","turn":"S2","state":"FOCUSED","engineer_summary":"Rain reported in sector two","driver_display":"RAIN S2"},
+  {"direction":"driver_to_engineer","utterance":"Safety car, safety car. I am behind the leader.","intent":"race_control","turn":"","state":"FOCUSED","engineer_summary":"Safety-car condition acknowledged","driver_display":"SAFETY CAR"},
+  {"direction":"driver_to_engineer","utterance":"There is a blue flag ahead.","intent":"blue_flag","turn":"","state":"FOCUSED","engineer_summary":"Blue flag situation reported","driver_display":"BLUE FLAG"},
+  {"direction":"driver_to_engineer","utterance":"Box this lap, the tyres are finished.","intent":"pit_request","turn":"","state":"FOCUSED","engineer_summary":"Driver requests a pit stop this lap","driver_display":"BOX"},
+  {"direction":"engineer_to_driver","utterance":"Take less curb at Turn 2.","intent":"reduce_curb","turn":"T2","state":"INSTRUCTION","engineer_summary":"Reduce curb usage at Turn 2","driver_display":"LESS CURB T2"},
+  {"direction":"engineer_to_driver","utterance":"Box this lap for a tyre change.","intent":"pit_instruction","turn":"","state":"INSTRUCTION","engineer_summary":"Pit this lap","driver_display":"BOX THIS LAP"},
+  {"direction":"engineer_to_driver","utterance":"Safety car deployed. Slow down and maintain delta.","intent":"race_control","turn":"","state":"PRIORITY","engineer_summary":"Safety-car procedure active","driver_display":"SAFETY CAR"},
+  {"direction":"engineer_to_driver","utterance":"Blue flag. Let the faster car through.","intent":"blue_flag","turn":"","state":"PRIORITY","engineer_summary":"Blue-flag instruction","driver_display":"BLUE FLAG"}
+]

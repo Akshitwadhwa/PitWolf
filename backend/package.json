@@ -1,0 +1,15 @@
+{
+  "name": "pitwall-copilot-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=../.env --env-file-if-exists=.env server.mjs",
+    "server": "node --env-file-if-exists=../.env --env-file-if-exists=.env server.mjs",
+    "ingest:turns": "node scripts/ingest-f1-radio-turns.mjs",
+    "fetch:night-races": "node scripts/fetch-openf1-night-races.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3"
+  }
+}
