@@ -16,10 +16,9 @@ The product is an engineering decision-support dashboard, not primarily a racing
 - Frontend: React + Vite
 - Existing backend: Node.js in `backend/`
 - Existing Supabase migrations and integration are retained
-- Existing Pitwall team, radio, cockpit and engineer-mode flows are retained
+- The old Pitwall team, radio, cockpit and engineer-mode UI has been removed from this copy
 - The new OverVolt dashboard is available at `/?demo=dashboard`
-- The earlier 3D replay prototype is available at `/?demo=race3d`
-- The earlier strategy prototype is available at `/?demo=strategy`
+- The root route is a minimal PitWolf landing page with the F1 opening video and one dashboard entry button
 
 Run locally:
 
@@ -37,7 +36,13 @@ http://localhost:5173/?demo=dashboard
 
 ## What is implemented now
 
-`frontend/src/components/StrategyDashboard.jsx` contains the first OverVolt dashboard prototype:
+`frontend/src/components/StrategyDashboard.jsx` contains the first OverVolt dashboard prototype. The rest of the frontend is intentionally minimal:
+
+- `frontend/src/App.jsx` contains only the PitWolf landing page and dashboard route
+- `frontend/src/pitwolf.css` contains the landing-page styles
+- Unused team, driver, wheel, radio and cockpit components were removed
+
+The dashboard includes:
 
 - Strategy tab
 - Telemetry tab
@@ -180,4 +185,3 @@ Mitigations: cache processed data, validate each session, label uncertainty, ver
 - Scrubbing updates all panels
 - Recommendation has a short explanation
 - Demo can be recorded in under three minutes
-
