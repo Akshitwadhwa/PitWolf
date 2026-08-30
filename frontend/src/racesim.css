@@ -1,0 +1,379 @@
+/* ── Race Simulation View ──────────────────────────────── */
+.rs-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #090d0f;
+  color: #eaf7f1;
+  font-family: 'Manrope', sans-serif;
+  overflow: hidden;
+}
+
+/* Header */
+.rs-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  height: 60px;
+  padding: 0 28px;
+  border-bottom: 1px solid rgba(225,255,245,.13);
+  background: rgba(9,13,15,.95);
+}
+
+.rs-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+}
+.rs-brand > span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: #ff7043;
+  color: #07100e;
+  font-size: 15px;
+}
+.rs-brand strong {
+  font: 700 18px/.85 'Space Grotesk';
+  letter-spacing: -.07em;
+}
+.rs-brand em {
+  color: #ff7043;
+  font-style: normal;
+}
+
+.rs-race-info {
+  display: grid;
+  gap: 3px;
+  text-align: center;
+  font: 9px 'DM Mono';
+  letter-spacing: .1em;
+}
+.rs-race-info b {
+  color: #dcece6;
+  font-weight: 500;
+}
+.rs-race-info span {
+  color: #72877f;
+  font-size: 8px;
+}
+
+.rs-lap-counter {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-shrink: 0;
+  font: 9px 'DM Mono';
+  letter-spacing: .1em;
+  color: #72877f;
+}
+.rs-lap-counter b {
+  color: #ff9b78;
+  font: 700 22px 'Space Grotesk';
+  letter-spacing: -.06em;
+}
+.rs-lap-counter small {
+  color: #72877f;
+  font: 9px 'DM Mono';
+}
+
+/* Dashboard button in header */
+.rs-dashboard-btn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border: 1px solid rgba(255,112,67,.55);
+  background: transparent;
+  color: #ff9b78;
+  font: 700 8px 'DM Mono';
+  letter-spacing: .1em;
+  cursor: pointer;
+  transition: background .2s, color .2s;
+}
+.rs-dashboard-btn:hover {
+  background: rgba(255,112,67,.12);
+  color: #ffb18e;
+}
+
+/* Speed selector */
+.rs-speed-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.rs-speed-btn {
+  padding: 6px 10px;
+  border: 1px solid rgba(225,255,245,.15);
+  background: transparent;
+  color: #72877f;
+  font: 700 8px 'DM Mono';
+  letter-spacing: .08em;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.rs-speed-btn:hover {
+  color: #c2d4cd;
+  border-color: rgba(225,255,245,.3);
+}
+.rs-speed-btn.active {
+  background: rgba(255,112,67,.15);
+  border-color: rgba(255,112,67,.6);
+  color: #ff9b78;
+}
+
+/* Body — two panels */
+.rs-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.85fr 1fr;
+  overflow: hidden;
+}
+
+/* ── Left: Circuit map panel ─────────────────────────── */
+.rs-map-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px 16px 24px;
+  border-right: 1px solid rgba(225,255,245,.12);
+  overflow: hidden;
+  gap: 10px;
+}
+
+.rs-map-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #95aaa1;
+  font: 9px 'DM Mono';
+  letter-spacing: .1em;
+  flex-shrink: 0;
+}
+
+.rs-map-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.rs-map-wrap .ov-circuit-svg,
+.rs-map-wrap svg {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  display: block;
+}
+
+.rs-map-readout {
+  flex-shrink: 0;
+  text-align: right;
+}
+.rs-map-readout b {
+  display: block;
+  color: #ff9b78;
+  font: 600 36px 'Space Grotesk';
+  letter-spacing: -.07em;
+  line-height: 1;
+}
+.rs-map-readout span {
+  color: #72877f;
+  font: 9px 'DM Mono';
+  letter-spacing: .08em;
+}
+
+.rs-map-legend {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font: 8px 'DM Mono';
+  letter-spacing: .06em;
+  color: #81958d;
+}
+.rs-map-legend em {
+  margin-left: auto;
+  color: #63e6be;
+  font-style: normal;
+}
+
+.rs-dot {
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  margin: 0 5px 2px 0;
+  vertical-align: middle;
+}
+.rs-dot.lec { background: #ef4444; }
+.rs-dot.per { background: #3b82f6; }
+
+.rs-leading {
+  color: #e8f5f0;
+  font-weight: bold;
+}
+.rs-gap-drs {
+  color: #63e6be !important;
+}
+.rs-gap-battle {
+  color: #ff9b78 !important;
+}
+
+/* ── Right: Timeline panel ───────────────────────────── */
+.rs-timeline-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px 16px;
+  overflow-y: auto;
+  gap: 14px;
+}
+
+.rs-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(225,255,245,.1);
+  color: #95aaa1;
+  font: 9px 'DM Mono';
+  letter-spacing: .1em;
+  flex-shrink: 0;
+}
+
+/* Status badge */
+.rs-badge {
+  font: 8px 'DM Mono';
+  letter-spacing: .08em;
+  padding: 4px 7px;
+  border: 1px solid rgba(225,255,245,.15);
+}
+.rs-badge.real { color: #63e6be; }
+.rs-badge.derived { color: #a9bfff; }
+
+/* Timeline track */
+.rs-timeline-track {
+  display: flex;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.rs-timeline-line {
+  width: 2px;
+  background: rgba(225,255,245,.1);
+  margin: 6px 14px 6px 6px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  position: relative;
+}
+.rs-timeline-line i {
+  display: block;
+  width: 100%;
+  background: #ff7043;
+  border-radius: 2px;
+  transition: height .15s linear;
+  box-shadow: 0 0 8px rgba(255,112,67,.5);
+}
+
+.rs-timeline-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1;
+}
+
+.rs-timeline-items li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(225,255,245,.08);
+  color: #4e6560;
+  font: 9px 'DM Mono';
+  letter-spacing: .1em;
+  transition: color .2s;
+}
+.rs-timeline-items li.is-passed {
+  color: #c2d4cd;
+}
+.rs-tl-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(225,255,245,.15);
+  border: 1px solid rgba(225,255,245,.2);
+  transition: background .2s, border-color .2s, box-shadow .2s;
+}
+.is-passed .rs-tl-dot {
+  background: #ff7043;
+  border-color: #ff7043;
+  box-shadow: 0 0 8px rgba(255,112,67,.6);
+}
+.rs-timeline-items li b {
+  text-align: right;
+  color: #e8f5f0;
+  font: 500 13px 'Space Grotesk';
+  letter-spacing: -.04em;
+}
+.rs-timeline-items li:not(.is-passed) b {
+  color: #4e6560;
+}
+/* Fastest-lap row gets a purple/violet accent */
+.rs-timeline-items li.is-fastest .rs-tl-dot {
+  background: #c084fc;
+  border-color: #c084fc;
+  box-shadow: 0 0 8px rgba(192,132,252,.6);
+}
+.rs-fastest-val {
+  color: #c084fc !important;
+}
+/* Lap number sub-label inside the span */
+.rs-tl-sub {
+  color: #72877f;
+  font: 8px 'DM Mono';
+  letter-spacing: .06em;
+  font-style: normal;
+}
+
+/* Pit section */
+.rs-pit-section {
+  border-top: 1px solid rgba(225,255,245,.1);
+  padding-top: 14px;
+  flex-shrink: 0;
+}
+.rs-pit-section > span {
+  display: block;
+  color: #ff7043;
+  font: 8px 'DM Mono';
+  letter-spacing: .12em;
+  margin-bottom: 10px;
+}
+.rs-pit-section p {
+  margin: 10px 0 0;
+  color: #627870;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.rs-pit-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(225,255,245,.07);
+  font: 9px 'DM Mono';
+  letter-spacing: .06em;
+}
+.rs-pit-item b { color: #ff9b78; }
+.rs-pit-item em { color: #627870; font-style: normal; }
+.rs-pit-item strong { text-align: right; color: #e8f5f0; font: 500 12px 'Space Grotesk'; }
+.rs-pit-item small { color: #627870; grid-column: 1/-1; font-size: 8px; }

@@ -158,7 +158,7 @@ export function StrategyDashboard() {
 
   return <main className="ov-dashboard">
     <header className="ov-header">
-      <div className="ov-brand"><span>✦</span><strong>OVER<em>VOLT</em></strong><small>RACE STRATEGY INTELLIGENCE</small></div>
+      <div className="ov-brand"><span>✦</span><strong>PIT<em>WOLF</em></strong><small>RACE STRATEGY INTELLIGENCE</small></div>
       <div className="ov-header-center">
         <b>{meta.event_date.slice(0, 4)} {meta.event.toUpperCase()}</b>
         <span>{meta.session.toUpperCase()} / LAP {meta.focus_lap} OF {meta.total_laps} / {meta.circuit.toUpperCase()}</span>
@@ -425,7 +425,7 @@ export function StrategyDashboard() {
     </section>
 
     <footer className="ov-footer">
-      <span>OVERVOLT / {meta.scenario_id}</span>
+      <span>PITWOLF / {meta.scenario_id}</span>
       <span>REAL TELEMETRY · DERIVED FEATURES · ENERGY MODEL {ENERGY_MODEL_VERSION} · ENGINE {DECISION_ENGINE_VERSION}</span>
     </footer>
   </main>
