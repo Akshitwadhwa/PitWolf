@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import scenario from '../data/scenarios/las-vegas-2023-lec-per.json'
 import { CircuitMap, formatLapTime } from './CircuitMap'
 import {
@@ -17,6 +17,11 @@ const tabs = ['STRATEGY', 'TRACK', 'TELEMETRY', 'ENERGY', 'OVERTAKE', 'LEGENDS']
 const { meta, attacker, defender, distance_m: distance, derived } = scenario
 const atk = scenario.attacker_telemetry
 const def = scenario.defender_telemetry
+const driverData = scenario.drivers ?? {}
+const attackerRace = driverData[attacker.code] ?? {}
+const defenderRace = driverData[defender.code] ?? {}
+const attackerFocusLap = (attackerRace.lap_history ?? []).find((lap) => lap.lap === meta.focus_lap) ?? attackerRace.fastest_lap
+const defenderFocusLap = (defenderRace.lap_history ?? []).find((lap) => lap.lap === meta.focus_lap) ?? defenderRace.fastest_lap
 const lastIndex = distance.length - 1
 
 // The energy trace is deterministic for a given scenario, so it is computed once
@@ -39,13 +44,13 @@ const passZone = derived.braking_zones.reduce(
   derived.braking_zones[0],
 )
 const DEFAULT_FOCUS = Math.max(0, distance.findIndex((m) => m >= passZone.start_m - 110))
-const PLAYBACK_RATE = 4
 
 const SERIES = {
   speed: { primary: atk.speed_kph, secondary: def.speed_kph, max: 380, min: 0, unit: 'km/h' },
   gap: { primary: derived.gap_s, secondary: null, max: 1.4, min: -0.3, unit: 's' },
   throttle: { primary: atk.throttle_pct, secondary: def.throttle_pct, max: 100, min: 0, unit: '%' },
   brake: { primary: atk.brake_pct, secondary: def.brake_pct, max: 100, min: 0, unit: '%' },
+  drs: { primary: atk.drs_active.map((active) => active ? 1 : 0), secondary: def.drs_active.map((active) => active ? 1 : 0), max: 1, min: 0, unit: '' },
   reserve: { primary: energy.reservePct, secondary: null, max: 100, min: 0, unit: '%' },
 }
 
@@ -81,9 +86,9 @@ function Chart({ type = 'speed', focus }) {
       <circle className="chart-marker-dot" cx={markerX} cy={markerY} r="5" />
     </svg>
     <div className="chart-axis">
-      <span>{max}{unit}</span>
-      <span>{((max + min) / 2).toFixed(unit === 's' ? 2 : 0)}{unit}</span>
-      <span>{min}{unit}</span>
+      <span>{type === 'drs' ? 'OPEN' : `${max}${unit}`}</span>
+      <span>{type === 'drs' ? '—' : `${((max + min) / 2).toFixed(unit === 's' ? 2 : 0)}${unit}`}</span>
+      <span>{type === 'drs' ? 'CLOSED' : `${min}${unit}`}</span>
       <b>DISTANCE / {meta.lap_length_m.toLocaleString()} m</b>
     </div>
     <div className="chart-legend">
@@ -94,41 +99,46 @@ function Chart({ type = 'speed', focus }) {
   </div>
 }
 
+function LapHistoryChart({ driver, selectedLap }) {
+  const width = 760
+  const height = 205
+  const pad = { x: 42, y: 20, r: 20, b: 30 }
+  const rows = (driver.lap_history ?? []).filter((row) => row.lap_time_s != null)
+  if (!rows.length) return <p className="ov-notes">No lap-time history was available for this driver.</p>
+  const values = rows.map((row) => row.lap_time_s)
+  const min = Math.min(...values) - 0.5
+  const max = Math.max(...values) + 0.5
+  const last = Math.max(rows.length - 1, 1)
+  const point = (row, index) => `${pad.x + (index / last) * (width - pad.x - pad.r)},${pad.y + (1 - (row.lap_time_s - min) / (max - min)) * (height - pad.y - pad.b)}`
+  const selectedIndex = Math.max(0, rows.findIndex((row) => row.lap === selectedLap))
+  const selected = rows[selectedIndex] ?? rows[rows.length - 1]
+  const selectedPoint = point(selected, selectedIndex)
+  const [markerX, markerY] = selectedPoint.split(',')
+  return <div className="ov-chart">
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${driver.code} lap time history`}>
+      <g className="chart-grid">
+        <line x1={pad.x} y1={pad.y} x2={width - pad.r} y2={pad.y} />
+        <line x1={pad.x} y1={(height - pad.b) / 2} x2={width - pad.r} y2={(height - pad.b) / 2} />
+        <line x1={pad.x} y1={height - pad.b} x2={width - pad.r} y2={height - pad.b} />
+      </g>
+      <polyline className="chart-primary" points={rows.map(point).join(' ')} />
+      <line className="chart-marker" x1={markerX} y1={pad.y} x2={markerX} y2={height - pad.b} />
+      <circle className="chart-marker-dot" cx={markerX} cy={markerY} r="5" />
+    </svg>
+    <div className="chart-axis"><span>{max.toFixed(1)}s</span><span>{((max + min) / 2).toFixed(1)}s</span><span>{min.toFixed(1)}s</span><b>LAP NUMBER / {driver.race_laps ?? rows.length}</b></div>
+    <div className="chart-legend"><span><i className="line-real" /> {driver.code} REAL LAP TIMES</span><em>L{selected.lap} · {selected.lap_time_s.toFixed(3)}s · {selected.compound ?? 'TYRE N/A'}</em></div>
+  </div>
+}
+
 function DataBadge({ children, tone = 'real' }) {
   return <span className={`data-badge ${tone}`}><i />{children}</span>
 }
 
 export function StrategyDashboard() {
   const [tab, setTab] = useState('STRATEGY')
-  const [focus, setFocus] = useState(DEFAULT_FOCUS)
-  const [playing, setPlaying] = useState(false)
+  const focus = DEFAULT_FOCUS
   const [strategy, setStrategy] = useState('ATTACK')
   const [drsOverride, setDrsOverride] = useState(null)
-  const focusRef = useRef(focus)
-  focusRef.current = focus
-
-  useEffect(() => {
-    if (!playing) return undefined
-    let frame
-    let last = performance.now()
-    const tick = (now) => {
-      const dt = ((now - last) / 1000) * PLAYBACK_RATE
-      last = now
-      const current = focusRef.current
-      const target = atk.elapsed_s[current] + dt
-      if (target >= atk.elapsed_s[lastIndex]) {
-        setFocus(lastIndex)
-        setPlaying(false)
-        return
-      }
-      let next = current
-      while (next < lastIndex && atk.elapsed_s[next] < target) next += 1
-      setFocus(next)
-      frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [playing])
 
   const gap = derived.gap_s[focus]
   const speed = atk.speed_kph[focus]
@@ -207,24 +217,25 @@ export function StrategyDashboard() {
             <Chart type="speed" focus={focus} />
             <div className="ov-panel-head second"><span>GAP TO CAR AHEAD</span><DataBadge tone="derived">DERIVED</DataBadge></div>
             <Chart type="gap" focus={focus} />
+            <div className="ov-panel-head second"><span>RACE LAP TIMES / ALL LAPS</span><DataBadge tone="real">REAL TIMING</DataBadge></div>
+            <LapHistoryChart driver={attackerRace} selectedLap={meta.focus_lap} />
           </section>
 
           <aside className="ov-panel ov-energy-panel">
-            <div className="ov-panel-head"><span>ENERGY MODEL {ENERGY_MODEL_VERSION}</span><DataBadge tone="simulated">MODELLED</DataBadge></div>
+            <div className="ov-panel-head"><span>RACE DATA SNAPSHOT</span><DataBadge tone="real">REAL FASTF1</DataBadge></div>
             <div className="ov-big-metric">
-              <span>ESTIMATED RESERVE</span>
-              <strong>{Math.round(reserve)}<small>%</small></strong>
-              <div className="ov-meter"><i style={{ width: `${reserve}%` }} /></div>
-              <p>Integrated from real brake and throttle traces against published {REGULATION.season} regulation limits.</p>
+              <span>{attacker.code} FASTEST RACE LAP</span>
+              <strong>{attackerRace.fastest_lap?.lap_time_s?.toFixed(3) ?? '—'}<small>s</small></strong>
+              <p>Lap {attackerRace.fastest_lap?.lap ?? '—'} · {attackerRace.fastest_lap?.compound ?? 'TYRE N/A'} · tyre life {attackerRace.fastest_lap?.tyre_life ?? '—'} laps.</p>
             </div>
             <div className="ov-energy-rows">
-              <div><span>RECOVERY AHEAD</span><b>{recovery.totalMj.toFixed(2)} MJ</b><em>{recovery.zones} ZONES LEFT</em></div>
-              <div><span>ATTACK COST</span><b>{cost.toFixed(2)} MJ</b><em>3.2 SEC BURST</em></div>
-              <div><span>STORE USED THIS LAP</span><b>{energy.deployedMj[focus].toFixed(2)} MJ</b><em>LIMIT {REGULATION.esDeploymentLimitMjPerLap} MJ</em></div>
+              <div><span>FOCUS LAP / {attacker.code}</span><b>{attackerFocusLap?.lap_time_s?.toFixed(3) ?? '—'}s</b><em>{attackerFocusLap?.compound ?? 'TYRE N/A'} · {attackerFocusLap?.tyre_life ?? '—'}L</em></div>
+              <div><span>FOCUS LAP / {defender.code}</span><b>{defenderFocusLap?.lap_time_s?.toFixed(3) ?? '—'}s</b><em>{defenderFocusLap?.compound ?? 'TYRE N/A'} · {defenderFocusLap?.tyre_life ?? '—'}L</em></div>
+              <div><span>DRS TELEMETRY</span><b>{attackerRace.telemetry_summary?.drs_active_pct?.toFixed(1) ?? '—'}%</b><em>{attackerRace.telemetry_summary?.samples?.toLocaleString() ?? '—'} SAMPLES</em></div>
             </div>
             <div className="ov-assumption">
-              SIMULATION ASSUMPTION
-              <p>Start-of-lap store assumed at {DEFAULT_START_RESERVE_PCT}%. Team battery state of charge is not public and is never presented as measured.</p>
+              ENERGY DATA LIMITATION
+              <p>FastF1 does not expose team battery SOC, MGU-K deployment, or boost-button state. The separate energy tab is an explicitly modelled proxy, never measured telemetry.</p>
             </div>
           </aside>
         </div>
@@ -243,9 +254,9 @@ export function StrategyDashboard() {
               <p>{data.text}</p>
               <div>
                 <b>{name === 'ATTACK' ? `${feasibility}%` : name === 'DELAY' ? `${Math.max(0, feasibility - 12)}%` : '—'}</b>
-                <small>PASS CHANCE</small>
+                <small>PASS CHANCE · DERIVED</small>
                 <b>{name === 'ATTACK' ? `${cost.toFixed(2)} MJ` : name === 'DELAY' ? `${(cost * 0.6).toFixed(2)} MJ` : '0.00 MJ'}</b>
-                <small>ENERGY COST</small>
+                <small>ENERGY COST · MODELLED</small>
               </div>
             </button>)}
           </div>
@@ -255,7 +266,7 @@ export function StrategyDashboard() {
       {tab === 'TRACK' && <div className="ov-track-layout">
         <article className="ov-panel ov-track-card">
           <div className="ov-panel-head">
-            <span>{meta.circuit.toUpperCase()} / {playing ? 'LIVE RUN' : 'REPLAY'}</span>
+            <span>{meta.circuit.toUpperCase()} / FIXED FOCUS LAP</span>
             <DataBadge tone="real">REAL GPS</DataBadge>
           </div>
           <CircuitMap attacker={atk} defender={def} focus={focus} circuitName={meta.circuit} passIndex={DEFAULT_FOCUS} />
@@ -294,6 +305,14 @@ export function StrategyDashboard() {
             </div>)}
             <p>Stationary time from official pit-in to pit-out. Laps 22 and 27 position swaps were excluded as these pit cycles.</p>
           </div>
+          <div className="ov-pit-extra">
+            <span>TYRE STINTS / REAL TIMING</span>
+            {[attackerRace, defenderRace].map((driver) => <div key={driver.code}>
+              <b>{driver.code}</b>
+              <em>{(driver.tyre_stints ?? []).map((stint) => `${stint.compound} L${stint.lap_start}–${stint.lap_end}`).join(' · ') || 'N/A'}</em>
+            </div>)}
+            {scenario.weather_summary?.available && <p>Weather: track {scenario.weather_summary.ranges.track_temp_c.min}–{scenario.weather_summary.ranges.track_temp_c.max}°C · air {scenario.weather_summary.ranges.air_temp_c.min}–{scenario.weather_summary.ranges.air_temp_c.max}°C.</p>}
+          </div>
         </aside>
       </div>}
 
@@ -303,6 +322,8 @@ export function StrategyDashboard() {
           <Chart type="speed" focus={focus} />
           <div className="ov-panel-head second"><span>THROTTLE APPLICATION</span><DataBadge tone="real">REAL TELEMETRY</DataBadge></div>
           <Chart type="throttle" focus={focus} />
+          <div className="ov-panel-head second"><span>DRS STATE / TELEMETRY SAMPLES</span><DataBadge tone="real">REAL TELEMETRY</DataBadge></div>
+          <Chart type="drs" focus={focus} />
         </section>
         <section className="ov-panel ov-chart-panel">
           <div className="ov-panel-head"><span>BRAKE APPLICATION</span><DataBadge tone="real">REAL TELEMETRY</DataBadge></div>
@@ -316,6 +337,7 @@ export function StrategyDashboard() {
               ['DRS flap', drsReal ? 'OPEN' : 'CLOSED', 'real'],
               ['Speed delta', `${speedDelta >= 0 ? '+' : ''}${speedDelta.toFixed(1)} km/h`, 'derived'],
               ['Top speed this lap', `${derived.attacker_top_speed_kph} vs ${derived.defender_top_speed_kph} km/h`, 'real'],
+              ['Telemetry samples', `${attackerRace.telemetry_summary?.samples?.toLocaleString() ?? '—'} / ${defenderRace.telemetry_summary?.samples?.toLocaleString() ?? '—'}`, 'real'],
             ].map(([label, value, tone]) => <div className="ov-factor" key={label}>
               <span>{label}</span><b className={tone === 'real' ? 'positive' : ''}>{value}</b>
             </div>)}
@@ -325,16 +347,21 @@ export function StrategyDashboard() {
 
       {tab === 'ENERGY' && <div className="ov-tab-grid">
         <section className="ov-panel ov-energy-detail">
-          <div className="ov-panel-head"><span>MODELLED RESERVE ACROSS THE LAP</span><DataBadge tone="simulated">MODELLED</DataBadge></div>
+          <div className="ov-panel-head"><span>ENERGY PROXY / BRAKE + THROTTLE INPUTS</span><DataBadge tone="simulated">MODELLED</DataBadge></div>
           <Chart type="reserve" focus={focus} />
           <div className="ov-energy-list">
             <div><b>{derived.braking_zones.length}</b><span>BRAKING ZONES DETECTED</span><strong>DERIVED</strong></div>
             <div><b>{energy.recoveredMj[focus].toFixed(2)} MJ</b><span>RECOVERED BY THIS POINT</span><strong>MODELLED</strong></div>
             <div><b>{energy.deployedMj[focus].toFixed(2)} MJ</b><span>DEPLOYED BY THIS POINT</span><strong>MODELLED</strong></div>
           </div>
+          <p className="ov-notes">No measured battery or ERS trace is included here: FastF1 publishes the inputs shown above, not team-specific state of charge or deployment.</p>
         </section>
         <section className="ov-panel ov-evidence">
-          <div className="ov-panel-head"><span>MODEL INPUTS</span><b>{ENERGY_MODEL_VERSION}</b></div>
+          <div className="ov-panel-head"><span>ENERGY DATA AVAILABILITY</span><DataBadge tone="real">FASTF1 CHECK</DataBadge></div>
+          <div className="ov-evidence-item"><i>00</i><div><b>Battery state of charge</b><p>Not exposed by FastF1 for this session. No measured value is displayed.</p></div><strong>NOT AVAILABLE</strong></div>
+          <div className="ov-evidence-item"><i>00</i><div><b>MGU-K / boost deployment</b><p>Not exposed by FastF1. The model cannot claim when the driver pressed an overtake button.</p></div><strong>NOT AVAILABLE</strong></div>
+          <div className="ov-evidence-item"><i>00</i><div><b>DRS flap state</b><p>Available from the real car telemetry and charted in the telemetry tab.</p></div><strong>AVAILABLE</strong></div>
+          <div className="ov-panel-head second"><span>MODEL INPUTS / FOR PROXY ONLY</span><b>{ENERGY_MODEL_VERSION}</b></div>
           <div className="ov-evidence-item"><i>01</i><div><b>MGU-K power limit</b><p>Published regulation ceiling used for both deployment and recovery rate.</p></div><strong>{REGULATION.mguKMaxPowerKw} kW</strong></div>
           <div className="ov-evidence-item"><i>02</i><div><b>Recovery limit per lap</b><p>Caps how much the braking zones on this lap can return to the store.</p></div><strong>{REGULATION.mguKRecoveryLimitMjPerLap} MJ</strong></div>
           <div className="ov-evidence-item"><i>03</i><div><b>Store deployment limit per lap</b><p>Caps energy drawn from the battery. MGU-H supply to the MGU-K is not counted against it.</p></div><strong>{REGULATION.esDeploymentLimitMjPerLap} MJ</strong></div>
@@ -345,9 +372,9 @@ export function StrategyDashboard() {
 
       {tab === 'OVERTAKE' && <div className="ov-overtake-layout">
         <section className="ov-panel ov-overtake-hero">
-          <div className="ov-panel-head"><span>OVERTAKE WINDOW</span><DataBadge tone="derived">DERIVED SCORE</DataBadge></div>
+          <div className="ov-panel-head"><span>OVERTAKE WINDOW / REPLAY</span><DataBadge tone="derived">DERIVED SCORE</DataBadge></div>
           <strong>{feasibility}%</strong>
-          <p>FEASIBILITY SCORE</p>
+          <p>FEASIBILITY SCORE · REAL SPEED/GAP/DRS INPUTS</p>
           <div className="ov-meter large"><i style={{ width: `${feasibility}%` }} /></div>
           <div className="ov-risk">
             <span>ENGINE {DECISION_ENGINE_VERSION}</span>
@@ -356,6 +383,7 @@ export function StrategyDashboard() {
           <button className="ov-play" onClick={() => setDrsOverride(drsOverride === null ? !drsReal : null)}>
             {drsOverride === null ? `COUNTERFACTUAL: FORCE DRS ${drsReal ? 'CLOSED' : 'OPEN'}` : `RESET TO REAL DRS (${drsReal ? 'OPEN' : 'CLOSED'})`}
           </button>
+          <div className="ov-real-callout"><DataBadge tone="real">OBSERVED PASS</DataBadge><b>{onTrackPasses.length} on-track position changes</b><p>Race-control and classified-position changes are kept separate from pit-cycle swaps.</p></div>
         </section>
         <section className="ov-panel ov-factor-panel">
           <div className="ov-panel-head"><span>WHAT IS DRIVING THE RECOMMENDATION?</span><b>EXPLAINABLE</b></div>
@@ -364,6 +392,12 @@ export function StrategyDashboard() {
             <b className={factor.tone}>{factor.value}</b>
             <i style={{ width: factor.tone === 'positive' ? '78%' : factor.tone === 'neutral' ? '55%' : '32%' }} />
             <em>{factor.note}</em>
+          </div>)}
+          <div className="ov-panel-head second"><span>OBSERVED PASS EVENTS</span><DataBadge tone="real">REAL RACE HISTORY</DataBadge></div>
+          {onTrackPasses.slice(-4).map((point) => <div className="ov-factor" key={`pass-${point.lap}`}>
+            <span>Lap {point.lap} · {point.gained_position} took the position from {point.lost_position}</span>
+            <b className="positive">{point.gap_before_s?.toFixed(3) ?? '—'}s gap before</b>
+            <em>{point.attacker_tyre.compound} {point.attacker_tyre.age_laps}L vs {point.defender_tyre.compound} {point.defender_tyre.age_laps}L</em>
           </div>)}
         </section>
       </div>}
@@ -374,9 +408,18 @@ export function StrategyDashboard() {
           <div className="ov-legend-item"><DataBadge tone="real">REAL</DataBadge><p>Loaded from FastF1 official timing and car telemetry: {meta.provenance.real.join(', ')}.</p></div>
           <div className="ov-legend-item"><DataBadge tone="derived">DERIVED</DataBadge><p>Calculated from those real values: {meta.provenance.derived.join(', ')}.</p></div>
           <div className="ov-legend-item"><DataBadge tone="simulated">SIMULATED</DataBadge><p>Produced by energy model {ENERGY_MODEL_VERSION}. ERS deployment and battery state of charge are not public and are never presented as measured team data.</p></div>
+          <div className="ov-panel-head second"><span>SESSION COVERAGE</span><DataBadge tone="real">REAL FASTF1</DataBadge></div>
+          <div className="ov-factor"><span>Weather samples</span><b className="positive">{scenario.weather_summary?.samples?.toLocaleString() ?? '—'}</b><em>Air, track, humidity, pressure and wind ranges included.</em></div>
+          <div className="ov-factor"><span>Race-control messages</span><b className="positive">{scenario.race_control?.length ?? 0}</b><em>Flags, DRS notices, safety-car context and lap references where supplied.</em></div>
         </section>
         <section className="ov-panel">
-          <div className="ov-panel-head"><span>DECISION POINTS IN THIS RACE</span><b>OBSERVABLE GROUND TRUTH</b></div>
+          <div className="ov-panel-head"><span>FASTEST RACE LAPS</span><DataBadge tone="real">REAL TIMING</DataBadge></div>
+          {(scenario.fastest_laps ?? []).slice(0, 5).map((lap, index) => <div className="ov-factor" key={`${lap.Driver}-${lap.LapNumber}`}>
+            <span>#{index + 1} · {lap.Driver} · lap {lap.LapNumber}</span>
+            <b className={lap.Driver === attacker.code ? 'positive' : ''}>{lap.LapTime?.toFixed?.(3) ?? '—'}s</b>
+            <em>{lap.Compound ?? 'TYRE N/A'} · tyre life {lap.TyreLife ?? '—'} · speed FL {lap.SpeedFL ?? '—'} km/h</em>
+          </div>)}
+          <div className="ov-panel-head second"><span>DECISION POINTS IN THIS RACE</span><b>OBSERVABLE GROUND TRUTH</b></div>
           {onTrackPasses.map((point) => <div className="ov-factor" key={point.lap}>
             <span>Lap {point.lap} · {point.gained_position} took the position</span>
             <b className="positive">{point.gap_before_s}s before</b>
@@ -392,36 +435,6 @@ export function StrategyDashboard() {
         </section>
       </div>}
 
-      <div className="ov-scrubber">
-        <div><span>LAP DISTANCE</span><b>{Math.round(distance[focus]).toLocaleString()} m</b><em> / {meta.lap_length_m.toLocaleString()} m</em></div>
-        <input
-          type="range"
-          min="0"
-          max={lastIndex}
-          value={focus}
-          onChange={(e) => {
-            setPlaying(false)
-            setFocus(Number(e.target.value))
-          }}
-        />
-        <div className="ov-scrub-stops">
-          <span>LAP START</span><span>DRS ZONE</span><span>TURN 14 BRAKING</span><span>FINISH</span>
-        </div>
-        <button
-          className={`ov-play ${playing ? 'is-playing' : ''}`}
-          onClick={() => {
-            if (playing) {
-              setPlaying(false)
-              return
-            }
-            if (focus >= lastIndex) setFocus(0)
-            setPlaying(true)
-            if (tab !== 'TRACK') setTab('TRACK')
-          }}
-        >
-          {playing ? '■ PAUSE' : '▶ START'}
-        </button>
-      </div>
     </section>
 
     <footer className="ov-footer">

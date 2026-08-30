@@ -195,6 +195,102 @@ def main():
             "sector_3_s": s3,
         }
 
+    def scalar(value):
+        """Convert FastF1/Pandas scalars into JSON-safe values."""
+        if value is None or (not isinstance(value, (list, dict)) and pd.isna(value)):
+            return None
+        if isinstance(value, (pd.Timestamp, datetime)):
+            return value.isoformat()
+        if isinstance(value, pd.Timedelta):
+            return round(float(value.total_seconds()), 3)
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
+
+    def lap_record(row):
+        fields = {
+            "lap": row["LapNumber"], "lap_time_s": row["LapTime"], "sector_1_s": row["Sector1Time"],
+            "sector_2_s": row["Sector2Time"], "sector_3_s": row["Sector3Time"], "compound": row["Compound"],
+            "tyre_life": row["TyreLife"], "stint": row["Stint"], "speed_i1_kph": row["SpeedI1"],
+            "speed_i2_kph": row["SpeedI2"], "speed_finish_kph": row["SpeedFL"], "speed_trap_kph": row["SpeedST"],
+            "position": row["Position"], "track_status": row["TrackStatus"], "pit_in": row["PitInTime"],
+            "pit_out": row["PitOutTime"], "is_personal_best": row["IsPersonalBest"], "is_accurate": row["IsAccurate"],
+        }
+        return {key: scalar(value) for key, value in fields.items()}
+
+    def driver_history(code):
+        rows = laps.pick_drivers(code).sort_values("LapNumber")
+        clean = rows[rows["LapTime"].notna()]
+        fastest = clean.sort_values("LapTime").iloc[0] if not clean.empty else None
+        history = [lap_record(row) for _, row in rows.iterrows()]
+        stints = []
+        for stint, group in rows.groupby("Stint", dropna=True):
+            compounds = group["Compound"].dropna().astype(str)
+            if group.empty:
+                continue
+            stints.append({
+                "stint": scalar(stint), "lap_start": scalar(group["LapNumber"].min()),
+                "lap_end": scalar(group["LapNumber"].max()), "laps": int(group["LapNumber"].count()),
+                "compound": compounds.iloc[0] if not compounds.empty else None,
+                "tyre_life_start": scalar(group["TyreLife"].min()), "tyre_life_end": scalar(group["TyreLife"].max()),
+            })
+        return {
+            "lap_history": history,
+            "tyre_stints": stints,
+            "fastest_lap": lap_record(fastest) if fastest is not None else None,
+            "race_laps": scalar(rows["LapNumber"].max()) if not rows.empty else None,
+            "pit_laps": [scalar(value) for value in rows.loc[rows["PitInTime"].notna(), "LapNumber"]],
+        }
+
+    def telemetry_summary(code):
+        rows = laps.pick_drivers(code)
+        samples = []
+        for _, row in rows.iterrows():
+            try:
+                tel = row.get_telemetry()
+            except Exception:
+                continue
+            if tel is not None and not tel.empty:
+                samples.append(tel)
+        if not samples:
+            return {"available": False, "samples": 0}
+        tel = pd.concat(samples, ignore_index=True)
+        drs = tel["DRS"].dropna() if "DRS" in tel else pd.Series(dtype=float)
+        active = drs.isin(DRS_ACTIVE)
+        return {
+            "available": True, "samples": int(len(tel)), "drs_samples": int(active.sum()),
+            "drs_active_pct": round(float(active.mean() * 100), 2) if len(active) else None,
+            "max_speed_kph": scalar(tel["Speed"].max()) if "Speed" in tel else None,
+            "max_rpm": scalar(tel["RPM"].max()) if "RPM" in tel else None,
+        }
+
+    def weather_summary():
+        if session.weather_data is None or session.weather_data.empty:
+            return {"available": False}
+        weather = session.weather_data
+        def range_for(column):
+            if column not in weather or weather[column].dropna().empty:
+                return None
+            return {"min": round(float(weather[column].min()), 2), "max": round(float(weather[column].max()), 2)}
+        return {"available": True, "samples": int(len(weather)), "ranges": {
+            "air_temp_c": range_for("AirTemp"), "track_temp_c": range_for("TrackTemp"),
+            "humidity_pct": range_for("Humidity"), "pressure_hpa": range_for("Pressure"),
+            "wind_speed_mps": range_for("WindSpeed"),
+        }}
+
+    def fastest_laps():
+        columns = ["Driver", "LapNumber", "LapTime", "Compound", "TyreLife", "SpeedFL", "IsAccurate"]
+        available = laps[[column for column in columns if column in laps]].dropna(subset=["LapTime"])
+        available = available.sort_values("LapTime").head(10)
+        return [{key: scalar(value) for key, value in row.items()} for _, row in available.iterrows()]
+
+    def race_control():
+        messages = session.race_control_messages
+        if messages is None or messages.empty:
+            return []
+        columns = ["Time", "Category", "Flag", "Scope", "Sector", "RacingNumber", "Lap", "Message"]
+        return [{key: scalar(value) for key, value in row.items()} for _, row in messages[[c for c in columns if c in messages]].iterrows()]
+
     def sector_markers(elapsed_s, timing):
         markers = [{"label": "GRID EXIT", "at_s": 0.0, "index": 0}]
         cumulative = 0.0
@@ -266,7 +362,8 @@ def main():
                 "real": [
                     "speed_kph", "throttle_pct", "brake_pct", "gear", "rpm",
                     "drs_active", "gps x/y", "sector times", "pit in/out times",
-                    "tyre compound and age", "classified positions",
+                    "tyre compound and age", "lap history", "fastest laps", "classified positions",
+                    "weather samples", "race-control messages",
                 ],
                 "derived": [
                     "gap_s", "speed_delta_kph (used as closing rate)", "braking_zones",
@@ -297,6 +394,13 @@ def main():
             "defender": def_timing,
             "markers": sector_markers(elapsed["attacker"], atk_timing),
         },
+        "drivers": {
+            ATTACKER: {**classified(ATTACKER), **driver_history(ATTACKER), "telemetry_summary": telemetry_summary(ATTACKER)},
+            DEFENDER: {**classified(DEFENDER), **driver_history(DEFENDER), "telemetry_summary": telemetry_summary(DEFENDER)},
+        },
+        "fastest_laps": fastest_laps(),
+        "weather_summary": weather_summary(),
+        "race_control": race_control(),
         "pit_extras": pit_extras(ATTACKER) + pit_extras(DEFENDER),
         "outcome": {
             "final_margin_s": round(
