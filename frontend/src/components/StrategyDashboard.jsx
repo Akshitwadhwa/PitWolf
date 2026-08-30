@@ -125,8 +125,8 @@ function LapHistoryChart({ driver, selectedLap }) {
       <line className="chart-marker" x1={markerX} y1={pad.y} x2={markerX} y2={height - pad.b} />
       <circle className="chart-marker-dot" cx={markerX} cy={markerY} r="5" />
     </svg>
-    <div className="chart-axis"><span>{max.toFixed(1)}s</span><span>{((max + min) / 2).toFixed(1)}s</span><span>{min.toFixed(1)}s</span><b>LAP NUMBER / {driver.race_laps ?? rows.length}</b></div>
-    <div className="chart-legend"><span><i className="line-real" /> {driver.code} REAL LAP TIMES</span><em>L{selected.lap} · {selected.lap_time_s.toFixed(3)}s · {selected.compound ?? 'TYRE N/A'}</em></div>
+    <div className="chart-axis"><span>{formatLapTime(max)}</span><span>{formatLapTime((max + min) / 2)}</span><span>{formatLapTime(min)}</span><b>LAP NUMBER / {driver.race_laps ?? rows.length}</b></div>
+    <div className="chart-legend"><span><i className="line-real" /> {driver.code} REAL LAP TIMES</span><em>L{selected.lap} · {formatLapTime(selected.lap_time_s)} · {selected.compound ?? 'TYRE N/A'}</em></div>
   </div>
 }
 
@@ -225,12 +225,12 @@ export function StrategyDashboard() {
             <div className="ov-panel-head"><span>RACE DATA SNAPSHOT</span><DataBadge tone="real">REAL FASTF1</DataBadge></div>
             <div className="ov-big-metric">
               <span>{attacker.code} FASTEST RACE LAP</span>
-              <strong>{attackerRace.fastest_lap?.lap_time_s?.toFixed(3) ?? '—'}<small>s</small></strong>
+              <strong>{formatLapTime(attackerRace.fastest_lap?.lap_time_s)}</strong>
               <p>Lap {attackerRace.fastest_lap?.lap ?? '—'} · {attackerRace.fastest_lap?.compound ?? 'TYRE N/A'} · tyre life {attackerRace.fastest_lap?.tyre_life ?? '—'} laps.</p>
             </div>
             <div className="ov-energy-rows">
-              <div><span>FOCUS LAP / {attacker.code}</span><b>{attackerFocusLap?.lap_time_s?.toFixed(3) ?? '—'}s</b><em>{attackerFocusLap?.compound ?? 'TYRE N/A'} · {attackerFocusLap?.tyre_life ?? '—'}L</em></div>
-              <div><span>FOCUS LAP / {defender.code}</span><b>{defenderFocusLap?.lap_time_s?.toFixed(3) ?? '—'}s</b><em>{defenderFocusLap?.compound ?? 'TYRE N/A'} · {defenderFocusLap?.tyre_life ?? '—'}L</em></div>
+              <div><span>FOCUS LAP / {attacker.code}</span><b>{formatLapTime(attackerFocusLap?.lap_time_s)}</b><em>{attackerFocusLap?.compound ?? 'TYRE N/A'} · {attackerFocusLap?.tyre_life ?? '—'}L</em></div>
+              <div><span>FOCUS LAP / {defender.code}</span><b>{formatLapTime(defenderFocusLap?.lap_time_s)}</b><em>{defenderFocusLap?.compound ?? 'TYRE N/A'} · {defenderFocusLap?.tyre_life ?? '—'}L</em></div>
               <div><span>DRS TELEMETRY</span><b>{attackerRace.telemetry_summary?.drs_active_pct?.toFixed(1) ?? '—'}%</b><em>{attackerRace.telemetry_summary?.samples?.toLocaleString() ?? '—'} SAMPLES</em></div>
             </div>
             <div className="ov-assumption">
@@ -416,7 +416,7 @@ export function StrategyDashboard() {
           <div className="ov-panel-head"><span>FASTEST RACE LAPS</span><DataBadge tone="real">REAL TIMING</DataBadge></div>
           {(scenario.fastest_laps ?? []).slice(0, 5).map((lap, index) => <div className="ov-factor" key={`${lap.Driver}-${lap.LapNumber}`}>
             <span>#{index + 1} · {lap.Driver} · lap {lap.LapNumber}</span>
-            <b className={lap.Driver === attacker.code ? 'positive' : ''}>{lap.LapTime?.toFixed?.(3) ?? '—'}s</b>
+            <b className={lap.Driver === attacker.code ? 'positive' : ''}>{formatLapTime(lap.LapTime)}</b>
             <em>{lap.Compound ?? 'TYRE N/A'} · tyre life {lap.TyreLife ?? '—'} · speed FL {lap.SpeedFL ?? '—'} km/h</em>
           </div>)}
           <div className="ov-panel-head second"><span>DECISION POINTS IN THIS RACE</span><b>OBSERVABLE GROUND TRUTH</b></div>
