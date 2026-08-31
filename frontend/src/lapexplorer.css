@@ -71,11 +71,20 @@
 .tc-lap-card button { background: none; border: 0; color: #71867e; cursor: pointer; font-size: 12px; }
 .tc-lap-card button:hover { color: #ff7043; }
 
-.tc-play { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.tc-play button { background: #ff7043; color: #07100e; border: 0; border-radius: 8px; padding: 7px 14px; font: 800 11px 'Manrope', sans-serif; letter-spacing: .1em; cursor: pointer; }
-.tc-play button:disabled { opacity: .4; }
-.tc-play select { background: #0b1415; color: #f1fff9; border: 1px solid #2c403a; border-radius: 7px; padding: 5px 6px; font: 600 11px 'DM Mono', monospace; }
-.tc-play span { font: 600 11px 'DM Mono', monospace; color: #71867e; min-width: 52px; }
+.tm-map-wrap { background: #0b1415; border: 1px solid #1d2b27; border-radius: 10px; overflow: hidden; }
+.tm-map-wrap svg { width: 100%; height: auto; display: block; }
+.tm-corner circle { fill: #07100e; stroke: #e8e8e8; stroke-width: 1.2; }
+.tm-corner text { fill: #f1fff9; font: 700 7px 'DM Mono', monospace; }
+
+.tm-transport { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tm-transport > button { background: #ff7043; color: #07100e; border: 0; border-radius: 8px; padding: 7px 14px; font: 800 11px 'Manrope', sans-serif; letter-spacing: .1em; cursor: pointer; }
+.tm-transport > button:disabled { opacity: .4; cursor: default; }
+.tm-scrubber { flex: 1; min-width: 140px; accent-color: #ff7043; cursor: pointer; }
+.tm-scrubber:disabled { opacity: .4; cursor: default; }
+.tm-readout { font: 600 11px 'DM Mono', monospace; color: #9cafa7; min-width: 110px; text-align: right; }
+.tm-speeds { display: flex; gap: 4px; }
+.tm-speeds button { background: #17211f; color: #9cafa7; border: 1px solid #2c403a; border-radius: 6px; padding: 5px 10px; font: 700 10px 'DM Mono', monospace; cursor: pointer; }
+.tm-speeds button.tm-active { background: #ff7043; color: #07100e; border-color: #ff7043; }
 
 .tc-charts { display: grid; gap: 8px; }
 .tc-chart svg { width: 100%; height: auto; display: block; background: #0b1415; border: 1px solid #1d2b27; border-radius: 10px; }

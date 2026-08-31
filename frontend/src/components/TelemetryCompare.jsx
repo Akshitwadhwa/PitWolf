@@ -1,41 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { formatLapTime } from './CircuitMap'
 import { fetchJson, lapKey } from './LapExplorer'
+import { TrackRaceMap, timeAtDistance, distanceAtTime } from './TrackRaceMap'
 
 const WIDTH = 960
 const HEIGHT = 150
 const PAD = { x: 50, y: 12, r: 14, b: 20 }
 
-function lowerBound(arr, value) {
-  let lo = 0
-  let hi = arr.length - 1
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (arr[mid] < value) lo = mid + 1
-    else hi = mid
-  }
-  return lo
-}
-
-function timeAtDistance(trace, d) {
-  const { distance, time } = trace
-  if (d <= distance[0]) return time[0]
-  const last = distance.length - 1
-  if (d >= distance[last]) return time[last]
-  const i = lowerBound(distance, d)
-  const f = (d - distance[i - 1]) / Math.max(1e-9, distance[i] - distance[i - 1])
-  return time[i - 1] + f * (time[i] - time[i - 1])
-}
-
-function distanceAtTime(trace, t) {
-  const { distance, time } = trace
-  if (t <= time[0]) return distance[0]
-  const last = time.length - 1
-  if (t >= time[last]) return distance[last]
-  const i = lowerBound(time, t)
-  const f = (t - time[i - 1]) / Math.max(1e-9, time[i] - time[i - 1])
-  return distance[i - 1] + f * (distance[i] - distance[i - 1])
-}
+const fmtClock = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`
 
 function TraceChart({ label, traces, yMin, yMax, yFmt, markers, cursor, step, xMax }) {
   const px = (d) => PAD.x + (d / xMax) * (WIDTH - PAD.x - PAD.r)
@@ -82,9 +54,14 @@ export function TelemetryCompare({ selectedLaps, onLapsChange }) {
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [cursorT, setCursorT] = useState(0)
+  const [trackmap, setTrackmap] = useState(null)
   const requested = useRef(new Set())
+  const trackmapRequested = useRef(new Set())
 
   const keysKey = selectedLaps.map(lapKey).join('|')
+  const sessionKey = selectedLaps.length
+    ? `${selectedLaps[0].year}:${selectedLaps[0].round}:${selectedLaps[0].session}`
+    : ''
 
   const loadLap = (sel) => {
     const key = lapKey(sel)
@@ -104,6 +81,16 @@ export function TelemetryCompare({ selectedLaps, onLapsChange }) {
   }, [keysKey])
 
   useEffect(() => {
+    if (!sessionKey || trackmapRequested.current.has(sessionKey)) return
+    trackmapRequested.current.add(sessionKey)
+    const first = selectedLaps[0]
+    setTrackmap({ loading: true })
+    fetchJson(`/api/f1/trackmap?year=${first.year}&round=${first.round}&session=${encodeURIComponent(first.session)}`)
+      .then((data) => setTrackmap(data.points?.length ? data : { error: data.error || 'no position data' }))
+      .catch((err) => setTrackmap({ error: err.message }))
+  }, [sessionKey])
+
+  useEffect(() => {
     setCursorT(0)
     setPlaying(false)
   }, [keysKey])
@@ -116,23 +103,27 @@ export function TelemetryCompare({ selectedLaps, onLapsChange }) {
     ? loaded.reduce((best, entry) => (entry.data.lapTimeS < best.data.lapTimeS ? entry : best))
     : null, [keysKey, telemetry])
 
-  useEffect(() => {
-    if (reference && cursorT >= reference.data.lapTimeS) setPlaying(false)
-  }, [cursorT, reference])
+  const total = useMemo(() => (loaded.length
+    ? Math.max(...loaded.map((entry) => entry.data.lapTimeS))
+    : 0), [keysKey, telemetry])
 
   useEffect(() => {
-    if (!playing || !reference) return undefined
+    if (total && cursorT >= total) setPlaying(false)
+  }, [cursorT, total])
+
+  useEffect(() => {
+    if (!playing || !total) return undefined
     let raf
     let last = performance.now()
     const tick = (now) => {
       const dt = (now - last) / 1000
       last = now
-      setCursorT((t) => Math.min(reference.data.lapTimeS, t + dt * speed))
+      setCursorT((t) => Math.min(total, t + dt * speed))
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing, speed, reference])
+  }, [playing, speed, total])
 
   if (!selectedLaps.length) {
     return <section className="lx-root tc-root">
@@ -208,12 +199,34 @@ export function TelemetryCompare({ selectedLaps, onLapsChange }) {
           <button onClick={() => onLapsChange(selectedLaps.filter((other) => lapKey(other) !== lapKey(sel)))} title="remove lap">✕</button>
         </div>
       })}
-      <div className="tc-play">
-        <button onClick={() => setPlaying((p) => !p)} disabled={!reference}>{playing ? 'PAUSE' : 'PLAY'}</button>
-        <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
-          {[0.5, 1, 2, 4].map((v) => <option key={v} value={v}>{v}x</option>)}
-        </select>
-        <span>{cursorT.toFixed(1)}s</span>
+    </div>
+
+    {trackmap?.loading && <div className="lx-loading">
+      <span className="lx-spinner" />
+      LOADING CIRCUIT MAP
+    </div>}
+    {trackmap?.points?.length > 0 && <TrackRaceMap trackmap={trackmap} loadedLaps={loaded} cursorT={cursorT} />}
+
+    <div className="tm-transport">
+      <button onClick={() => setPlaying((p) => !p)} disabled={!reference}>{playing ? 'PAUSE' : 'PLAY'}</button>
+      <button onClick={() => { setPlaying(false); setCursorT(0) }} disabled={!reference}>RESTART</button>
+      <input
+        className="tm-scrubber"
+        type="range"
+        min={0}
+        max={total || 1}
+        step={0.1}
+        value={Math.min(cursorT, total || 1)}
+        onChange={(e) => setCursorT(Number(e.target.value))}
+        disabled={!reference}
+      />
+      <span className="tm-readout">{fmtClock(cursorT)} / {fmtClock(total)}</span>
+      <div className="tm-speeds">
+        {[0.5, 1, 2, 4].map((v) => <button
+          key={v}
+          className={speed === v ? 'tm-active' : ''}
+          onClick={() => setSpeed(v)}
+        >{v}x</button>)}
       </div>
     </div>
 

@@ -4,7 +4,7 @@ const WIDTH = 640
 const HEIGHT = 280
 const PAD = 28
 
-function project(xs, ys) {
+export function project(xs, ys) {
   const minX = Math.min(...xs)
   const maxX = Math.max(...xs)
   const minY = Math.min(...ys)
@@ -25,7 +25,7 @@ function project(xs, ys) {
  * Linearly interpolate position and heading from a projected point array.
  * `frac` is a float index, e.g. 3.7 means 70% of the way from point 3 to 4.
  */
-function lerpPoint(pts, frac) {
+export function lerpPoint(pts, frac) {
   const i   = Math.max(0, Math.min(Math.floor(frac), pts.length - 2))
   const t   = Math.max(0, Math.min(frac - i, 1))
   const a   = pts[i]
@@ -37,7 +37,7 @@ function lerpPoint(pts, frac) {
   }
 }
 
-function CarMarker({ point, angle, color, label }) {
+export function CarMarker({ point, angle, color, label }) {
   if (!point) return null
   const dx = Math.cos(angle)
   const dy = Math.sin(angle)
