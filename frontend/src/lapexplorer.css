@@ -1,0 +1,85 @@
+/* ── Lap Explorer + Telemetry Comparison (gp-tempo style, PitWolf accent) ── */
+
+.lx-root { margin-top: 18px; padding: 16px; border: 1px solid #22332e; border-radius: 14px; background: rgba(11, 20, 21, .72); display: grid; gap: 14px; }
+.lx-panel-head { display: flex; justify-content: space-between; align-items: center; font: 600 11px 'DM Mono', monospace; letter-spacing: .14em; color: #ff7043; }
+.lx-panel-head em { font-style: normal; color: #71867e; }
+
+.lx-body { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; }
+@media (max-width: 900px) { .lx-body { grid-template-columns: 1fr; } }
+
+.lx-side { display: grid; gap: 10px; align-content: start; }
+.lx-select { width: 100%; background: #0b1415; color: #f1fff9; border: 1px solid #2c403a; border-radius: 9px; padding: 10px 12px; font: 500 13px 'Manrope', sans-serif; appearance: none; }
+.lx-select:disabled { opacity: .5; }
+
+.lx-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.lx-chip { min-width: 52px; padding: 8px 10px; border: 1px solid; border-radius: 9px; font: 700 12px 'DM Mono', monospace; letter-spacing: .08em; cursor: pointer; transition: transform .12s ease; }
+.lx-chip:hover { transform: translateY(-1px); }
+.lx-chip.active { color: #07100e !important; }
+
+.lx-compare { margin-top: 4px; background: #f1fff9; color: #07100e; border: 0; border-radius: 9px; padding: 11px 12px; font: 700 12px 'Manrope', sans-serif; letter-spacing: .1em; cursor: pointer; }
+.lx-compare:disabled { opacity: .4; cursor: default; }
+
+.lx-main { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.lx-loading { display: flex; align-items: center; gap: 10px; padding: 26px 14px; border: 1px dashed #2c403a; border-radius: 12px; color: #9cafa7; font: 500 12px 'DM Mono', monospace; letter-spacing: .06em; }
+.lx-spinner { width: 14px; height: 14px; border: 2px solid #2c403a; border-top-color: #ff7043; border-radius: 50%; animation: lx-spin .9s linear infinite; }
+@keyframes lx-spin { to { transform: rotate(360deg); } }
+.lx-error { padding: 12px 14px; border: 1px solid #7f1d1d; border-radius: 10px; background: rgba(127, 29, 29, .15); color: #ffb18e; font: 500 12px 'DM Mono', monospace; display: flex; gap: 12px; align-items: center; }
+.lx-error button { margin-left: auto; background: none; border: 1px solid #ffb18e; color: #ffb18e; border-radius: 7px; padding: 4px 10px; font: 700 10px 'DM Mono', monospace; cursor: pointer; }
+.lx-empty { color: #71867e; font: 500 12px 'DM Mono', monospace; }
+
+.lx-chart { position: relative; }
+.lx-legend { display: flex; gap: 18px; justify-content: center; font: 700 12px 'DM Mono', monospace; letter-spacing: .08em; margin-bottom: 2px; }
+.lx-chart svg { width: 100%; height: auto; display: block; }
+.lx-grid line { stroke: #1d2b27; stroke-dasharray: 3 5; }
+.lx-tick { fill: #71867e; font: 500 10px 'DM Mono', monospace; }
+.lx-axis-label { fill: #71867e; font: 600 10px 'DM Mono', monospace; letter-spacing: .18em; }
+.lx-axis-btn { display: block; margin: 2px auto 0; background: #17211f; color: #9cafa7; border: 1px solid #2c403a; border-radius: 8px; padding: 5px 12px; font: 700 10px 'DM Mono', monospace; letter-spacing: .12em; cursor: pointer; }
+
+.lx-switch { display: flex; align-items: center; gap: 9px; color: #9cafa7; font: 600 12px 'Manrope', sans-serif; cursor: pointer; width: fit-content; }
+.lx-switch input { display: none; }
+.lx-switch i { width: 34px; height: 18px; border-radius: 999px; background: #17211f; border: 1px solid #2c403a; position: relative; transition: background .15s ease; }
+.lx-switch i::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #71867e; transition: left .15s ease, background .15s ease; }
+.lx-switch input:checked + i { background: rgba(255, 112, 67, .25); border-color: #ff7043; }
+.lx-switch input:checked + i::after { left: 18px; background: #ff7043; }
+
+.lx-table-wrap { overflow-x: auto; border: 1px solid #22332e; border-radius: 10px; }
+.lx-table { border-collapse: separate; border-spacing: 3px; min-width: 100%; }
+.lx-table th { color: #71867e; font: 600 10px 'DM Mono', monospace; padding: 4px 2px; }
+.lx-table-head { position: sticky; left: 0; background: #0b1415; color: #f1fff9 !important; font: 700 12px 'DM Mono', monospace; padding-right: 10px; z-index: 1; }
+.lx-cell { min-width: 74px; padding: 7px 6px; border-radius: 7px; border: 1px solid #22332e; background: #101a18; color: #eaf7f1; font: 600 11px 'DM Mono', monospace; cursor: pointer; }
+.lx-cell:hover { border-color: #ff7043; }
+.lx-cell.pit { background: rgba(255, 112, 67, .16); border-color: rgba(255, 112, 67, .5); }
+.lx-cell.outlier { opacity: .55; }
+.lx-cell.sel { border-color: #63e6be; box-shadow: 0 0 0 1px #63e6be; }
+.lx-cell.na { opacity: .45; cursor: default; }
+.lx-tyre { display: inline-block; margin-left: 6px; width: 14px; height: 14px; border: 2px solid; border-radius: 50%; font: 800 8px 'DM Mono', monospace; font-style: normal; text-align: center; line-height: 11px; vertical-align: middle; }
+.lx-hint { color: #71867e; font: 500 11px 'DM Mono', monospace; }
+
+/* ── Telemetry comparison ── */
+
+.tc-laps { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.tc-lap-card { display: flex; align-items: center; gap: 8px; border: 1px solid; border-radius: 10px; padding: 8px 10px; background: #0b1415; }
+.tc-lap-card i { width: 10px; height: 10px; border-radius: 3px; }
+.tc-lap-card b { font: 700 13px 'DM Mono', monospace; color: #f1fff9; }
+.tc-lap-card span { font: 600 10px 'DM Mono', monospace; color: #71867e; letter-spacing: .1em; }
+.tc-lap-card strong { font: 700 12px 'DM Mono', monospace; color: #63e6be; }
+.tc-lap-card em { font: 500 11px 'DM Mono', monospace; color: #71867e; }
+.tc-delta { color: #ffb18e !important; }
+.tc-err { color: #ffb18e !important; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-lap-card .tc-retry { background: none; border: 1px solid #ff7043; color: #ff7043 !important; border-radius: 6px; padding: 2px 8px; font: 700 10px 'DM Mono', monospace; letter-spacing: .1em; cursor: pointer; }
+.tc-lap-card .tc-retry:hover { background: #ff7043; color: #07100e !important; }
+.tc-lap-card button { background: none; border: 0; color: #71867e; cursor: pointer; font-size: 12px; }
+.tc-lap-card button:hover { color: #ff7043; }
+
+.tc-play { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.tc-play button { background: #ff7043; color: #07100e; border: 0; border-radius: 8px; padding: 7px 14px; font: 800 11px 'Manrope', sans-serif; letter-spacing: .1em; cursor: pointer; }
+.tc-play button:disabled { opacity: .4; }
+.tc-play select { background: #0b1415; color: #f1fff9; border: 1px solid #2c403a; border-radius: 7px; padding: 5px 6px; font: 600 11px 'DM Mono', monospace; }
+.tc-play span { font: 600 11px 'DM Mono', monospace; color: #71867e; min-width: 52px; }
+
+.tc-charts { display: grid; gap: 8px; }
+.tc-chart svg { width: 100%; height: auto; display: block; background: #0b1415; border: 1px solid #1d2b27; border-radius: 10px; }
+.tc-sector { stroke: #3b5a52; stroke-dasharray: 4 5; }
+.tc-sector-label { fill: #63e6be; font: 700 9px 'DM Mono', monospace; }
+.tc-cursor { stroke: #ff7043; stroke-width: 1.4; }
+.tc-chart-label { fill: #9cafa7; font: 600 10px 'DM Mono', monospace; letter-spacing: .14em; }
