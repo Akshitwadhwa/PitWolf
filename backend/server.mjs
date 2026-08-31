@@ -1,5 +1,6 @@
 import http from 'node:http'
-import { readFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { readFile, mkdir, writeFile, rename, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { detectMoodFromText, detectMoodFromAudio } from './src/mood.mjs'
@@ -283,6 +284,63 @@ async function analyseEngineer(message, team) {
   }
 }
 
+// ─── FastF1 bridge ────────────────────────────────────────────────────────────
+// Session and telemetry payloads are produced by the Python scripts in
+// backend/scripts (fastf1) and cached as JSON under data/f1-cache so repeated
+// requests and the prefetch script share the same files.
+
+const F1_CACHE_DIR = path.join(root, 'data', 'f1-cache')
+
+function f1Slug(sessionName) {
+  return sessionName.toLowerCase().replace(/\s+/g, '_')
+}
+
+function runPython(script, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('python', [path.join(root, 'scripts', script), ...args])
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`${script} timed out after ${Math.round(timeoutMs / 1000)}s`))
+    }, timeoutMs)
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', (error) => { clearTimeout(timer); reject(error) })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (code === 0) return resolve(stdout)
+      const detail = stderr.trim().split('\n').filter(Boolean).pop() || `exit ${code}`
+      reject(new Error(`${script} failed: ${detail}`))
+    })
+  })
+}
+
+const ONDEMAND_LOCK = path.join(F1_CACHE_DIR, '.ondemand.lock')
+let onDemandInFlight = 0
+
+async function f1CachedOrFetch(cacheRel, script, args, timeoutMs) {
+  const cachePath = path.join(F1_CACHE_DIR, cacheRel)
+  try {
+    return JSON.parse(await readFile(cachePath, 'utf8'))
+  } catch {
+    // cache miss: fetch below
+  }
+  onDemandInFlight += 1
+  if (onDemandInFlight === 1) await writeFile(ONDEMAND_LOCK, String(process.pid)).catch(() => {})
+  try {
+    const payload = JSON.parse(await runPython(script, args, timeoutMs))
+    await mkdir(path.dirname(cachePath), { recursive: true })
+    const tmpPath = `${cachePath}.tmp`
+    await writeFile(tmpPath, JSON.stringify(payload))
+    await rename(tmpPath, cachePath)
+    return payload
+  } finally {
+    onDemandInFlight -= 1
+    if (onDemandInFlight === 0) await rm(ONDEMAND_LOCK, { force: true }).catch(() => {})
+  }
+}
+
 // ─── HTTP body helpers ─────────────────────────────────────────────────────────
 
 async function readJsonBody(request) {
@@ -481,6 +539,55 @@ export async function handler(request, response) {
       return json(response, 200, { sessions: await listHistorySessions(team, accessTokenFrom(request)) })
     } catch (error) {
       return json(response, error.statusCode || 400, { error: error.message || 'could not load history sessions' })
+    }
+  }
+
+  // ─── FastF1 lap chart + telemetry data ──────────────────────────────────
+  // GET /api/f1/events?year=2024 — rounds and available sessions for a year.
+  if (request.method === 'GET' && request.url?.startsWith('/api/f1/events')) {
+    const params = new URL(request.url, 'http://localhost').searchParams
+    const year = params.get('year') || ''
+    if (!/^\d{4}$/.test(year)) return json(response, 400, { error: 'a valid year is required' })
+    try {
+      return json(response, 200, await f1CachedOrFetch(`events/${year}.json`, 'fetch_f1_events.py', ['--year', year], 120000))
+    } catch (error) {
+      return json(response, 502, { error: error.message })
+    }
+  }
+
+  // GET /api/f1/session?year&round&session — drivers + all laps for a session.
+  if (request.method === 'GET' && request.url?.startsWith('/api/f1/session')) {
+    const params = new URL(request.url, 'http://localhost').searchParams
+    const year = params.get('year') || ''
+    const round = params.get('round') || ''
+    const session = params.get('session') || ''
+    if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(round) || !session) {
+      return json(response, 400, { error: 'year, round and session are required' })
+    }
+    try {
+      const cacheRel = `sessions/${year}/${round}_${f1Slug(session)}.json`
+      return json(response, 200, await f1CachedOrFetch(cacheRel, 'fetch_f1_session.py', ['--year', year, '--round', round, '--session', session], 240000))
+    } catch (error) {
+      return json(response, 502, { error: error.message })
+    }
+  }
+
+  // GET /api/f1/telemetry?year&round&session&driver&lap — one lap's car data.
+  if (request.method === 'GET' && request.url?.startsWith('/api/f1/telemetry')) {
+    const params = new URL(request.url, 'http://localhost').searchParams
+    const year = params.get('year') || ''
+    const round = params.get('round') || ''
+    const session = params.get('session') || ''
+    const driver = (params.get('driver') || '').toUpperCase()
+    const lap = params.get('lap') || ''
+    if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(round) || !session || !/^[A-Z]{3}$/.test(driver) || !/^\d{1,3}$/.test(lap)) {
+      return json(response, 400, { error: 'year, round, session, driver and lap are required' })
+    }
+    try {
+      const cacheRel = `telemetry/${year}/${round}_${f1Slug(session)}/${driver}_${lap}.json`
+      return json(response, 200, await f1CachedOrFetch(cacheRel, 'fetch_f1_telemetry.py', ['--year', year, '--round', round, '--session', session, '--driver', driver, '--lap', lap], 300000))
+    } catch (error) {
+      return json(response, 502, { error: error.message })
     }
   }
 

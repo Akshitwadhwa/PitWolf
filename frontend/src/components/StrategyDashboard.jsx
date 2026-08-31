@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react'
 import scenario from '../data/scenarios/las-vegas-2023-lec-per.json'
 import { CircuitMap, formatLapTime } from './CircuitMap'
+import { LapExplorer } from './LapExplorer'
+import { TelemetryCompare } from './TelemetryCompare'
 import {
   computeEnergyTrace,
   attackCostMj,
@@ -136,6 +138,7 @@ function DataBadge({ children, tone = 'real' }) {
 
 export function StrategyDashboard() {
   const [tab, setTab] = useState('STRATEGY')
+  const [telemetryLaps, setTelemetryLaps] = useState([])
   const focus = DEFAULT_FOCUS
   const [strategy, setStrategy] = useState('ATTACK')
   const [drsOverride, setDrsOverride] = useState(null)
@@ -184,7 +187,9 @@ export function StrategyDashboard() {
     </section>
 
     <nav className="ov-tabs">
-      {tabs.map((item) => <button key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}
+      {tabs.map((item) => <button key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>
+        {item === 'TELEMETRY' && telemetryLaps.length ? `TELEMETRY · ${telemetryLaps.length} LAP${telemetryLaps.length === 1 ? '' : 'S'}` : item}
+      </button>)}
       <span className="ov-tab-caveat">Cached {meta.event_date} session · every value labelled by source</span>
     </nav>
 
@@ -263,7 +268,8 @@ export function StrategyDashboard() {
         </div>
       </>}
 
-      {tab === 'TRACK' && <div className="ov-track-layout">
+      {tab === 'TRACK' && <>
+      <div className="ov-track-layout">
         <article className="ov-panel ov-track-card">
           <div className="ov-panel-head">
             <span>{meta.circuit.toUpperCase()} / FIXED FOCUS LAP</span>
@@ -314,36 +320,16 @@ export function StrategyDashboard() {
             {scenario.weather_summary?.available && <p>Weather: track {scenario.weather_summary.ranges.track_temp_c.min}–{scenario.weather_summary.ranges.track_temp_c.max}°C · air {scenario.weather_summary.ranges.air_temp_c.min}–{scenario.weather_summary.ranges.air_temp_c.max}°C.</p>}
           </div>
         </aside>
-      </div>}
+      </div>
 
-      {tab === 'TELEMETRY' && <div className="ov-tab-grid">
-        <section className="ov-panel ov-chart-panel">
-          <div className="ov-panel-head"><span>SPEED COMPARISON</span><DataBadge tone="real">REAL TELEMETRY</DataBadge></div>
-          <Chart type="speed" focus={focus} />
-          <div className="ov-panel-head second"><span>THROTTLE APPLICATION</span><DataBadge tone="real">REAL TELEMETRY</DataBadge></div>
-          <Chart type="throttle" focus={focus} />
-          <div className="ov-panel-head second"><span>DRS STATE / TELEMETRY SAMPLES</span><DataBadge tone="real">REAL TELEMETRY</DataBadge></div>
-          <Chart type="drs" focus={focus} />
-        </section>
-        <section className="ov-panel ov-chart-panel">
-          <div className="ov-panel-head"><span>BRAKE APPLICATION</span><DataBadge tone="real">REAL TELEMETRY</DataBadge></div>
-          <Chart type="brake" focus={focus} />
-          <div className="ov-panel-head second"><span>MEASURED AT THIS POINT</span><DataBadge tone="real">REAL TELEMETRY</DataBadge></div>
-          <div className="ov-factor-panel">
-            {[
-              ['Speed', `${speed.toFixed(0)} km/h`, 'real'],
-              ['Gear', `${atk.gear[focus]}`, 'real'],
-              ['RPM', atk.rpm[focus].toLocaleString(), 'real'],
-              ['DRS flap', drsReal ? 'OPEN' : 'CLOSED', 'real'],
-              ['Speed delta', `${speedDelta >= 0 ? '+' : ''}${speedDelta.toFixed(1)} km/h`, 'derived'],
-              ['Top speed this lap', `${derived.attacker_top_speed_kph} vs ${derived.defender_top_speed_kph} km/h`, 'real'],
-              ['Telemetry samples', `${attackerRace.telemetry_summary?.samples?.toLocaleString() ?? '—'} / ${defenderRace.telemetry_summary?.samples?.toLocaleString() ?? '—'}`, 'real'],
-            ].map(([label, value, tone]) => <div className="ov-factor" key={label}>
-              <span>{label}</span><b className={tone === 'real' ? 'positive' : ''}>{value}</b>
-            </div>)}
-          </div>
-        </section>
-      </div>}
+      <LapExplorer
+        selectedLaps={telemetryLaps}
+        onLapsChange={setTelemetryLaps}
+        onOpenTelemetry={() => setTab('TELEMETRY')}
+      />
+      </>}
+
+      {tab === 'TELEMETRY' && <TelemetryCompare selectedLaps={telemetryLaps} onLapsChange={setTelemetryLaps} />}
 
       {tab === 'ENERGY' && <div className="ov-tab-grid">
         <section className="ov-panel ov-energy-detail">
