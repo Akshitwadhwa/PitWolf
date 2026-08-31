@@ -591,6 +591,23 @@ export async function handler(request, response) {
     }
   }
 
+  // GET /api/f1/trackmap?year&round&session — circuit outline + corners for a session.
+  if (request.method === 'GET' && request.url?.startsWith('/api/f1/trackmap')) {
+    const params = new URL(request.url, 'http://localhost').searchParams
+    const year = params.get('year') || ''
+    const round = params.get('round') || ''
+    const session = params.get('session') || ''
+    if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(round) || !session) {
+      return json(response, 400, { error: 'year, round and session are required' })
+    }
+    try {
+      const cacheRel = `trackmap/${year}/${round}_${f1Slug(session)}.json`
+      return json(response, 200, await f1CachedOrFetch(cacheRel, 'fetch_f1_trackmap.py', ['--year', year, '--round', round, '--session', session], 240000))
+    } catch (error) {
+      return json(response, 502, { error: error.message })
+    }
+  }
+
   return json(response, 404, { error: 'not found' })
 }
 

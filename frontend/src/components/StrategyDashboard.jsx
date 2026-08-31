@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import scenario from '../data/scenarios/las-vegas-2023-lec-per.json'
-import { CircuitMap, formatLapTime } from './CircuitMap'
-import { LapExplorer } from './LapExplorer'
+import { formatLapTime } from './CircuitMap'
+import { LapExplorer, fetchJson } from './LapExplorer'
+import { TrackRaceMap } from './TrackRaceMap'
 import { TelemetryCompare } from './TelemetryCompare'
 import {
   computeEnergyTrace,
@@ -139,9 +140,26 @@ function DataBadge({ children, tone = 'real' }) {
 export function StrategyDashboard() {
   const [tab, setTab] = useState('STRATEGY')
   const [telemetryLaps, setTelemetryLaps] = useState([])
+  const [explorerSel, setExplorerSel] = useState(null)
+  const [explorerMaps, setExplorerMaps] = useState({})
+  const explorerMapRequested = useRef(new Set())
   const focus = DEFAULT_FOCUS
   const [strategy, setStrategy] = useState('ATTACK')
   const [drsOverride, setDrsOverride] = useState(null)
+
+  const selKey = explorerSel ? `${explorerSel.year}:${explorerSel.round}:${explorerSel.sessionName}` : null
+  const explorerMap = selKey ? explorerMaps[selKey] : null
+
+  useEffect(() => {
+    if (!explorerSel) return
+    const key = `${explorerSel.year}:${explorerSel.round}:${explorerSel.sessionName}`
+    if (explorerMapRequested.current.has(key)) return
+    explorerMapRequested.current.add(key)
+    setExplorerMaps((prev) => ({ ...prev, [key]: { loading: true } }))
+    fetchJson(`/api/f1/trackmap?year=${explorerSel.year}&round=${explorerSel.round}&session=${encodeURIComponent(explorerSel.sessionName)}`)
+      .then((data) => setExplorerMaps((prev) => ({ ...prev, [key]: data.points?.length ? data : { error: data.error || 'no position data' } })))
+      .catch((err) => setExplorerMaps((prev) => ({ ...prev, [key]: { error: err.message } })))
+  }, [explorerSel])
 
   const gap = derived.gap_s[focus]
   const speed = atk.speed_kph[focus]
@@ -272,18 +290,19 @@ export function StrategyDashboard() {
       <div className="ov-track-layout">
         <article className="ov-panel ov-track-card">
           <div className="ov-panel-head">
-            <span>{meta.circuit.toUpperCase()} / FIXED FOCUS LAP</span>
+            <span>{explorerSel
+              ? `${(explorerSel.event?.name ?? 'CIRCUIT').toUpperCase()} / ${explorerSel.sessionName.toUpperCase()}`
+              : 'CIRCUIT / SELECTED SESSION'}</span>
             <DataBadge tone="real">REAL GPS</DataBadge>
           </div>
-          <CircuitMap attacker={atk} defender={def} focus={focus} circuitName={meta.circuit} passIndex={DEFAULT_FOCUS} />
+          {explorerMap?.points?.length > 0 && <TrackRaceMap trackmap={explorerMap} loadedLaps={[]} cursorT={0} />}
+          {(!explorerMap || explorerMap.loading) && <div className="lx-loading"><span className="lx-spinner" />LOADING CIRCUIT MAP</div>}
+          {explorerMap?.error && <p className="lx-empty">No position data for this session.</p>}
           <div className="ov-track-readout">
-            <b>{formatLapTime(atk.elapsed_s[focus])}</b>
-            <span>ACTUAL LAP {meta.focus_lap} · {attacker.code} {speed.toFixed(0)} km/h</span>
-          </div>
-          <div className="chart-legend">
-            <span><i className="line-real" /> {attacker.code} ATTACKER</span>
-            <span><i className="line-reference" /> {defender.code} DEFENDER</span>
-            <em>GAP {gap >= 0 ? '+' : ''}{gap.toFixed(3)}s</em>
+            <b>{explorerMap?.trackLength ? `${Math.round(explorerMap.trackLength).toLocaleString()} m` : '—'}</b>
+            <span>{explorerSel?.event
+              ? `${String(explorerSel.event.country).toUpperCase()} · ${String(explorerSel.event.location).toUpperCase()}`
+              : 'FOLLOWING LAP EXPLORER SELECTION'}</span>
           </div>
         </article>
 
@@ -326,6 +345,7 @@ export function StrategyDashboard() {
         selectedLaps={telemetryLaps}
         onLapsChange={setTelemetryLaps}
         onOpenTelemetry={() => setTab('TELEMETRY')}
+        onSelectionChange={setExplorerSel}
       />
       </>}
 

@@ -169,7 +169,7 @@ function LapTable({ session, selectedDrivers, selectedLaps, onToggleLap }) {
   </div>
 }
 
-export function LapExplorer({ selectedLaps, onLapsChange, onOpenTelemetry }) {
+export function LapExplorer({ selectedLaps, onLapsChange, onOpenTelemetry, onSelectionChange }) {
   const [year, setYear] = useState(2024)
   const [events, setEvents] = useState(null)
   const [round, setRound] = useState(null)
@@ -198,6 +198,16 @@ export function LapExplorer({ selectedLaps, onLapsChange, onOpenTelemetry }) {
       .catch((err) => { if (!cancelled) setError(err.message) })
     return () => { cancelled = true }
   }, [year])
+
+  useEffect(() => {
+    if (!round || !sessionName) return
+    onSelectionChange?.({
+      year,
+      round,
+      sessionName,
+      event: (events ?? []).find((entry) => entry.round === round) ?? null,
+    })
+  }, [year, round, sessionName, events])
 
   useEffect(() => {
     if (!round || !sessionName) return undefined
