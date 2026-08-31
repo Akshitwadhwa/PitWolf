@@ -169,7 +169,7 @@ function LapTable({ session, selectedDrivers, selectedLaps, onToggleLap }) {
   </div>
 }
 
-export function LapExplorer({ selectedLaps, onLapsChange, onOpenTelemetry, onSessionChange }) {
+export function LapExplorer({ selectedLaps, onLapsChange, onOpenTelemetry, onSelectionChange }) {
   const [year, setYear] = useState(2024)
   const [events, setEvents] = useState(null)
   const [round, setRound] = useState(null)
@@ -200,6 +200,16 @@ export function LapExplorer({ selectedLaps, onLapsChange, onOpenTelemetry, onSes
   }, [year])
 
   useEffect(() => {
+    if (!round || !sessionName) return
+    onSelectionChange?.({
+      year,
+      round,
+      sessionName,
+      event: (events ?? []).find((entry) => entry.round === round) ?? null,
+    })
+  }, [year, round, sessionName, events])
+
+  useEffect(() => {
     if (!round || !sessionName) return undefined
     let cancelled = false
     setLoading(true); setError(null)
@@ -207,7 +217,6 @@ export function LapExplorer({ selectedLaps, onLapsChange, onOpenTelemetry, onSes
       .then((data) => {
         if (cancelled) return
         setSession(data)
-        onSessionChange?.(data)
         const ranked = [...data.drivers].sort((a, b) => (a.position ?? 99) - (b.position ?? 99))
         setSelectedDrivers(ranked.slice(0, 2).map((driver) => driver.abbr))
       })

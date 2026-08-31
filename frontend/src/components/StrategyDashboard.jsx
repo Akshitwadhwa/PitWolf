@@ -140,25 +140,26 @@ function DataBadge({ children, tone = 'real' }) {
 export function StrategyDashboard() {
   const [tab, setTab] = useState('STRATEGY')
   const [telemetryLaps, setTelemetryLaps] = useState([])
-  const [explorerSession, setExplorerSession] = useState(null)
-  const [explorerMap, setExplorerMap] = useState(null)
+  const [explorerSel, setExplorerSel] = useState(null)
+  const [explorerMaps, setExplorerMaps] = useState({})
   const explorerMapRequested = useRef(new Set())
   const focus = DEFAULT_FOCUS
   const [strategy, setStrategy] = useState('ATTACK')
   const [drsOverride, setDrsOverride] = useState(null)
 
+  const selKey = explorerSel ? `${explorerSel.year}:${explorerSel.round}:${explorerSel.sessionName}` : null
+  const explorerMap = selKey ? explorerMaps[selKey] : null
+
   useEffect(() => {
-    if (!explorerSession) return undefined
-    const { event, session } = explorerSession
-    const key = `${event.year}:${event.round}:${session}`
-    if (explorerMapRequested.current.has(key)) return undefined
+    if (!explorerSel) return
+    const key = `${explorerSel.year}:${explorerSel.round}:${explorerSel.sessionName}`
+    if (explorerMapRequested.current.has(key)) return
     explorerMapRequested.current.add(key)
-    setExplorerMap({ loading: true })
-    fetchJson(`/api/f1/trackmap?year=${event.year}&round=${event.round}&session=${encodeURIComponent(session)}`)
-      .then((data) => setExplorerMap(data.points?.length ? data : { error: data.error || 'no position data' }))
-      .catch((err) => setExplorerMap({ error: err.message }))
-    return undefined
-  }, [explorerSession])
+    setExplorerMaps((prev) => ({ ...prev, [key]: { loading: true } }))
+    fetchJson(`/api/f1/trackmap?year=${explorerSel.year}&round=${explorerSel.round}&session=${encodeURIComponent(explorerSel.sessionName)}`)
+      .then((data) => setExplorerMaps((prev) => ({ ...prev, [key]: data.points?.length ? data : { error: data.error || 'no position data' } })))
+      .catch((err) => setExplorerMaps((prev) => ({ ...prev, [key]: { error: err.message } })))
+  }, [explorerSel])
 
   const gap = derived.gap_s[focus]
   const speed = atk.speed_kph[focus]
@@ -289,19 +290,18 @@ export function StrategyDashboard() {
       <div className="ov-track-layout">
         <article className="ov-panel ov-track-card">
           <div className="ov-panel-head">
-            <span>{explorerSession
-              ? `${explorerSession.event.name.toUpperCase()} / ${explorerSession.session.toUpperCase()}`
+            <span>{explorerSel
+              ? `${(explorerSel.event?.name ?? 'CIRCUIT').toUpperCase()} / ${explorerSel.sessionName.toUpperCase()}`
               : 'CIRCUIT / SELECTED SESSION'}</span>
             <DataBadge tone="real">REAL GPS</DataBadge>
           </div>
           {explorerMap?.points?.length > 0 && <TrackRaceMap trackmap={explorerMap} loadedLaps={[]} cursorT={0} />}
-          {explorerMap?.loading && <div className="lx-loading"><span className="lx-spinner" />LOADING CIRCUIT MAP</div>}
+          {(!explorerMap || explorerMap.loading) && <div className="lx-loading"><span className="lx-spinner" />LOADING CIRCUIT MAP</div>}
           {explorerMap?.error && <p className="lx-empty">No position data for this session.</p>}
-          {!explorerSession && !explorerMap && <div className="lx-loading"><span className="lx-spinner" />LOADING SESSION</div>}
           <div className="ov-track-readout">
             <b>{explorerMap?.trackLength ? `${Math.round(explorerMap.trackLength).toLocaleString()} m` : '—'}</b>
-            <span>{explorerSession
-              ? `${String(explorerSession.event.country).toUpperCase()} · ${String(explorerSession.event.location).toUpperCase()}`
+            <span>{explorerSel?.event
+              ? `${String(explorerSel.event.country).toUpperCase()} · ${String(explorerSel.event.location).toUpperCase()}`
               : 'FOLLOWING LAP EXPLORER SELECTION'}</span>
           </div>
         </article>
@@ -345,7 +345,7 @@ export function StrategyDashboard() {
         selectedLaps={telemetryLaps}
         onLapsChange={setTelemetryLaps}
         onOpenTelemetry={() => setTab('TELEMETRY')}
-        onSessionChange={setExplorerSession}
+        onSelectionChange={setExplorerSel}
       />
       </>}
 
