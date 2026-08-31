@@ -1,60 +1,40 @@
 import argparse
 import json
+import urllib.request
 
 import fastf1
 import numpy as np
 
 from fetch_f1_session import CACHE_DIR, clean
 
-
-def smooth(values, window):
-    if len(values) < window:
-        return values
-    kernel = np.ones(window) / window
-    padded = np.pad(values, (window // 2, window // 2), mode='edge')
-    return np.convolve(padded, kernel, mode='valid')
+GP_TEMPO_CIRCUIT_URL = 'https://www.gp-tempo.com/api/circuit?year={year}&event={round}'
 
 
-def detect_corners(distances, xs, ys, speeds, track_length):
-    smoothed = smooth(speeds, 15)
-    max_s = float(np.max(smoothed))
-    min_s = float(np.min(smoothed))
-    span = max_s - min_s
-    if span <= 0:
-        return []
-    win = max(3, len(smoothed) // 60)
-    min_gap = 0.025 * track_length
-
-    picked = []
-    for prominence in (0.12, 0.08):
-        threshold = max_s - prominence * span
-        picked = []
-        for i in range(win, len(smoothed) - win):
-            if smoothed[i] <= threshold and smoothed[i] <= np.min(smoothed[i - win:i + win + 1]):
-                if picked and distances[i] - distances[picked[-1]] < min_gap:
-                    if smoothed[i] < smoothed[picked[-1]]:
-                        picked[-1] = i
-                else:
-                    picked.append(i)
-        if len(picked) > 1 and (distances[picked[0]] + track_length) - distances[picked[-1]] < min_gap:
-            if smoothed[picked[-1]] < smoothed[picked[0]]:
-                picked.pop()
-            else:
-                picked.pop(0)
-        if len(picked) >= 7:
-            break
-
-    if len(picked) < 3:
-        return []
-    return [
-        {
-            'n': number,
-            'd': round(float(distances[i]), 1),
-            'x': round(float(xs[i]), 2),
-            'y': round(float(ys[i]), 2),
-        }
-        for number, i in enumerate(picked, 1)
-    ]
+def fetch_corners(year, round_number, distances, xs, ys):
+    request = urllib.request.Request(
+        GP_TEMPO_CIRCUIT_URL.format(year=year, round=round_number),
+        headers={'User-Agent': 'Mozilla/5.0 (PitWolf track map)'},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = json.load(response)
+    except Exception:
+        return [], 'none'
+    corners = []
+    for corner in payload.get('Corners') or []:
+        number = corner.get('Number')
+        distance = corner.get('Distance')
+        if number is None or distance is None:
+            continue
+        index = int(np.searchsorted(distances, float(distance)))
+        index = max(0, min(index, len(distances) - 1))
+        corners.append({
+            'n': f"{int(number)}{corner.get('Letter') or ''}",
+            'd': round(float(distances[index]), 1),
+            'x': round(float(xs[index]), 2),
+            'y': round(float(ys[index]), 2),
+        })
+    return corners, 'gp-tempo' if corners else 'none'
 
 
 def pick_lap_with_position(session):
@@ -104,6 +84,8 @@ def build_trackmap_payload(year, round_number, session_name):
     speeds = tel['Speed'].to_numpy(dtype=float)
     track_length = float(distances[-1])
 
+    corners, corner_source = fetch_corners(year, round_number, distances, xs, ys)
+
     return {
         'trackLength': round(track_length, 1),
         'points': [
@@ -115,7 +97,8 @@ def build_trackmap_payload(year, round_number, session_name):
             }
             for d, x, y, s in zip(distances, xs, ys, speeds)
         ],
-        'corners': detect_corners(distances, xs, ys, speeds, track_length),
+        'corners': corners,
+        'cornerSource': corner_source,
         'source': f"{clean(row['Driver'])} L{int(row['LapNumber'])}",
     }
 

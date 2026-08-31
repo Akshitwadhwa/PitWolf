@@ -22,6 +22,16 @@ export function timeAtDistance(trace, d) {
   return time[i - 1] + f * (time[i] - time[i - 1])
 }
 
+export function speedAtDistance(trace, d) {
+  const { distance, speed } = trace
+  if (d <= distance[0]) return speed[0]
+  const last = distance.length - 1
+  if (d >= distance[last]) return speed[last]
+  const i = lowerBound(distance, d)
+  const f = (d - distance[i - 1]) / Math.max(1e-9, distance[i] - distance[i - 1])
+  return speed[i - 1] + f * (speed[i] - speed[i - 1])
+}
+
 export function distanceAtTime(trace, t) {
   const { distance, time } = trace
   if (t <= time[0]) return distance[0]
@@ -53,21 +63,61 @@ export function TrackRaceMap({ trackmap, loadedLaps, cursorT }) {
     }
   }, [trackmap])
 
-  const staticLayer = useMemo(() => {
+  const segmentColors = useMemo(() => {
     if (!projected) return null
     const minS = Math.min(...speeds)
     const span = Math.max(1e-9, Math.max(...speeds) - minS)
+    const heat = (i) => ((speeds[i] - minS) / span < 0.5 ? '#e10600' : '#ff8000')
+    const racers = loadedLaps.filter(({ data }) =>
+      data?.trace?.speed?.length && data?.trace?.distance?.length)
+    if (!racers.length) return projected.slice(1).map((_, i) => heat(i + 1))
+
+    const winners = distances.map((d) => {
+      let best = null
+      let bestSpeed = -Infinity
+      for (const entry of racers) {
+        const trace = entry.data.trace
+        if (d > trace.distance[trace.distance.length - 1]) continue
+        const speed = speedAtDistance(trace, d)
+        if (speed > bestSpeed) {
+          bestSpeed = speed
+          best = entry
+        }
+      }
+      return best
+    })
+
+    // Ownership only flips after two consecutive samples agree (gp-tempo JV).
+    const pointColors = []
+    let committed = winners.find((winner) => winner) ?? null
+    let prev = null
+    let streak = 0
+    for (let i = 0; i < winners.length; i++) {
+      const winner = winners[i]
+      streak = winner && winner === prev && winner !== committed ? streak + 1 : 0
+      prev = winner
+      if (streak > 0) {
+        committed = winner
+        streak = 0
+        if (i > 0) pointColors[i - 1] = committed.sel.color
+      }
+      pointColors[i] = committed ? committed.sel.color : heat(i)
+    }
+    return projected.slice(1).map((_, i) => pointColors[i + 1])
+  }, [projected, distances, speeds, loadedLaps])
+
+  const staticLayer = useMemo(() => {
+    if (!projected || !segmentColors) return null
     const outline = projected.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
     return <>
       <polyline points={outline} fill="none" stroke="#e8e8e8" strokeWidth="13" strokeLinecap="round" strokeLinejoin="round" />
       {projected.slice(1).map((p, i) => {
         const a = projected[i]
-        const slow = (speeds[i + 1] - minS) / span < 0.5
         return <line
           key={i}
           x1={a.x.toFixed(1)} y1={a.y.toFixed(1)}
           x2={p.x.toFixed(1)} y2={p.y.toFixed(1)}
-          stroke={slow ? '#e10600' : '#ff8000'}
+          stroke={segmentColors[i]}
           strokeWidth="9"
           strokeLinecap="round"
         />
@@ -80,7 +130,7 @@ export function TrackRaceMap({ trackmap, loadedLaps, cursorT }) {
         </g>
       })}
     </>
-  }, [projected, distances, speeds, corners])
+  }, [projected, distances, segmentColors, corners])
 
   if (!projected) return null
 
