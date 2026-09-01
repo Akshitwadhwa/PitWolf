@@ -104,7 +104,7 @@ function toFocusFrac(t, elapsed) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
-export function RaceSimView({ onOpenDashboard }) {
+export function RaceSimView({ onOpenDashboard, onHome }) {
   const [currentLap,   setCurrentLap]   = useState(1)
   const [fastestLap,   setFastestLap]   = useState(null)
   const [lastLapTime,  setLastLapTime]  = useState(null)
@@ -233,10 +233,10 @@ export function RaceSimView({ onOpenDashboard }) {
   return (
     <div className="rs-root">
       <header className="rs-header">
-        <div className="rs-brand">
+        <button type="button" className="rs-brand" onClick={onHome} aria-label="Back to home">
           <span>✦</span>
           <strong>PIT<em>WOLF</em></strong>
-        </div>
+        </button>
 
         <div className="rs-race-info">
           <b>LAS VEGAS GRAND PRIX 2023</b>

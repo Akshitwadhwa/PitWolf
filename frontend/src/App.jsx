@@ -7,8 +7,15 @@ import { StrategyDashboard } from './components/StrategyDashboard'
 function App() {
   const [page, setPage] = useState('landing')
 
-  if (page === 'sim')       return <RaceSimView onOpenDashboard={() => setPage('dashboard')} />
-  if (page === 'dashboard') return <StrategyDashboard />
+  if (page === 'sim') {
+    return <RaceSimView
+      onOpenDashboard={() => setPage('dashboard')}
+      onHome={() => setPage('landing')}
+    />
+  }
+  if (page === 'dashboard') {
+    return <StrategyDashboard onHome={() => setPage('landing')} />
+  }
 
   return <main className="pitwolf-landing">
     <video className="pitwolf-video" autoPlay muted loop playsInline preload="metadata" aria-hidden="true">

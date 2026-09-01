@@ -27,6 +27,14 @@
   align-items: center;
   gap: 9px;
   flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.rs-brand:hover strong {
+  color: #ffb18e;
 }
 .rs-brand > span {
   display: grid;

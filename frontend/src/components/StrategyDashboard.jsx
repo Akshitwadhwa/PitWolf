@@ -137,7 +137,7 @@ function DataBadge({ children, tone = 'real' }) {
   return <span className={`data-badge ${tone}`}><i />{children}</span>
 }
 
-export function StrategyDashboard() {
+export function StrategyDashboard({ onHome }) {
   const [tab, setTab] = useState('STRATEGY')
   const [telemetryLaps, setTelemetryLaps] = useState([])
   const [explorerSel, setExplorerSel] = useState(null)
@@ -189,7 +189,11 @@ export function StrategyDashboard() {
 
   return <main className="ov-dashboard">
     <header className="ov-header">
-      <div className="ov-brand"><span>✦</span><strong>PIT<em>WOLF</em></strong><small>RACE STRATEGY INTELLIGENCE</small></div>
+      <button type="button" className="ov-brand" onClick={onHome} aria-label="Back to home">
+        <span>✦</span>
+        <strong>PIT<em>WOLF</em></strong>
+        <small>RACE STRATEGY INTELLIGENCE</small>
+      </button>
       <div className="ov-header-center">
         <b>{meta.event_date.slice(0, 4)} {meta.event.toUpperCase()}</b>
         <span>{meta.session.toUpperCase()} / LAP {meta.focus_lap} OF {meta.total_laps} / {meta.circuit.toUpperCase()}</span>
