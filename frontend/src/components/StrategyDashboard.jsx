@@ -14,6 +14,7 @@ import {
   DEFAULT_START_RESERVE_PCT,
 } from '../lib/energyModel'
 import { recommend, feasibilityScore, STRATEGIES, DECISION_ENGINE_VERSION } from '../lib/decisionEngine'
+import { RaceSelector, useRaceEngine, StrategyTab, EnergyTab, OvertakeTab } from './DecisionTabs'
 
 const tabs = ['STRATEGY', 'TRACK', 'TELEMETRY', 'ENERGY', 'OVERTAKE', 'LEGENDS']
 
@@ -146,6 +147,21 @@ export function StrategyDashboard() {
   const focus = DEFAULT_FOCUS
   const [strategy, setStrategy] = useState('ATTACK')
   const [drsOverride, setDrsOverride] = useState(null)
+  const [raceSel, setRaceSel] = useState({ year: 2023, round: 21, session: 'R', driver: 'LEC' })
+  const engine = useRaceEngine(raceSel)
+
+  // When a season's extracted rounds arrive and exclude the current round
+  // (e.g. switching to 2026, which has fewer completed races), snap to the
+  // nearest available round so the panels never land on an empty state.
+  // Keyed on the round list only, so manual round picks are never overridden.
+  useEffect(() => {
+    const rounds = engine.events ?? []
+    if (!rounds.length || rounds.some((e) => e.round === raceSel.round)) return
+    const nearest = rounds.reduce((best, e) =>
+      (Math.abs(e.round - raceSel.round) < Math.abs(best.round - raceSel.round) ? e : best), rounds[0])
+    setRaceSel((s) => ({ ...s, round: nearest.round }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine.events])
 
   const selKey = explorerSel ? `${explorerSel.year}:${explorerSel.round}:${explorerSel.sessionName}` : null
   const explorerMap = selKey ? explorerMaps[selKey] : null
@@ -224,67 +240,13 @@ export function StrategyDashboard() {
         </div>
       </div>
 
-      {tab === 'STRATEGY' && <>
-        <div className="ov-alert">
-          <span>◆</span>
-          <div>
-            <b>{decision.recommendation === 'SAVE' ? 'NO WINDOW AT THIS POINT' : 'DECISION WINDOW OPEN'}</b>
-            <p>{decision.reason}</p>
-          </div>
-          <strong>{decision.recommendation} RECOMMENDED</strong>
-        </div>
+      {['STRATEGY', 'ENERGY', 'OVERTAKE'].includes(tab) && (
+        <RaceSelector sel={raceSel} onChange={setRaceSel} drivers={engine.drivers} events={engine.events} />
+      )}
 
-        <div className="ov-main-grid">
-          <section className="ov-panel ov-chart-panel">
-            <div className="ov-panel-head"><span>SPEED / {attacker.code} vs {defender.code}</span><DataBadge tone="real">REAL TELEMETRY</DataBadge></div>
-            <Chart type="speed" focus={focus} />
-            <div className="ov-panel-head second"><span>GAP TO CAR AHEAD</span><DataBadge tone="derived">DERIVED</DataBadge></div>
-            <Chart type="gap" focus={focus} />
-            <div className="ov-panel-head second"><span>RACE LAP TIMES / ALL LAPS</span><DataBadge tone="real">REAL TIMING</DataBadge></div>
-            <LapHistoryChart driver={attackerRace} selectedLap={meta.focus_lap} />
-          </section>
-
-          <aside className="ov-panel ov-energy-panel">
-            <div className="ov-panel-head"><span>RACE DATA SNAPSHOT</span><DataBadge tone="real">REAL FASTF1</DataBadge></div>
-            <div className="ov-big-metric">
-              <span>{attacker.code} FASTEST RACE LAP</span>
-              <strong>{formatLapTime(attackerRace.fastest_lap?.lap_time_s)}</strong>
-              <p>Lap {attackerRace.fastest_lap?.lap ?? '—'} · {attackerRace.fastest_lap?.compound ?? 'TYRE N/A'} · tyre life {attackerRace.fastest_lap?.tyre_life ?? '—'} laps.</p>
-            </div>
-            <div className="ov-energy-rows">
-              <div><span>FOCUS LAP / {attacker.code}</span><b>{formatLapTime(attackerFocusLap?.lap_time_s)}</b><em>{attackerFocusLap?.compound ?? 'TYRE N/A'} · {attackerFocusLap?.tyre_life ?? '—'}L</em></div>
-              <div><span>FOCUS LAP / {defender.code}</span><b>{formatLapTime(defenderFocusLap?.lap_time_s)}</b><em>{defenderFocusLap?.compound ?? 'TYRE N/A'} · {defenderFocusLap?.tyre_life ?? '—'}L</em></div>
-              <div><span>DRS TELEMETRY</span><b>{attackerRace.telemetry_summary?.drs_active_pct?.toFixed(1) ?? '—'}%</b><em>{attackerRace.telemetry_summary?.samples?.toLocaleString() ?? '—'} SAMPLES</em></div>
-            </div>
-            <div className="ov-assumption">
-              ENERGY DATA LIMITATION
-              <p>FastF1 does not expose team battery SOC, MGU-K deployment, or boost-button state. The separate energy tab is an explicitly modelled proxy, never measured telemetry.</p>
-            </div>
-          </aside>
-        </div>
-
-        <div className="ov-strategy-row">
-          <div className="ov-section-label"><span>COUNTERFACTUALS</span><b>COMPARE THE CHOICES</b></div>
-          <div className="ov-strategy-cards">
-            {Object.entries(STRATEGIES).map(([name, data]) => <button
-              key={name}
-              className={`ov-strategy-card ${strategy === name ? 'selected' : ''}`}
-              style={{ '--strategy-color': data.color }}
-              onClick={() => setStrategy(name)}
-            >
-              <span>{decision.recommendation === name ? '★ ENGINE RECOMMENDS' : 'SCENARIO'}</span>
-              <strong>{name}</strong>
-              <p>{data.text}</p>
-              <div>
-                <b>{name === 'ATTACK' ? `${feasibility}%` : name === 'DELAY' ? `${Math.max(0, feasibility - 12)}%` : '—'}</b>
-                <small>PASS CHANCE · DERIVED</small>
-                <b>{name === 'ATTACK' ? `${cost.toFixed(2)} MJ` : name === 'DELAY' ? `${(cost * 0.6).toFixed(2)} MJ` : '0.00 MJ'}</b>
-                <small>ENERGY COST · MODELLED</small>
-              </div>
-            </button>)}
-          </div>
-        </div>
-      </>}
+      {tab === 'STRATEGY' && (
+        <StrategyTab sel={raceSel} decision={engine.decision} preds={engine.preds} energy={engine.energy} />
+      )}
 
       {tab === 'TRACK' && <>
       <div className="ov-track-layout">
@@ -351,62 +313,13 @@ export function StrategyDashboard() {
 
       {tab === 'TELEMETRY' && <TelemetryCompare selectedLaps={telemetryLaps} onLapsChange={setTelemetryLaps} />}
 
-      {tab === 'ENERGY' && <div className="ov-tab-grid">
-        <section className="ov-panel ov-energy-detail">
-          <div className="ov-panel-head"><span>ENERGY PROXY / BRAKE + THROTTLE INPUTS</span><DataBadge tone="simulated">MODELLED</DataBadge></div>
-          <Chart type="reserve" focus={focus} />
-          <div className="ov-energy-list">
-            <div><b>{derived.braking_zones.length}</b><span>BRAKING ZONES DETECTED</span><strong>DERIVED</strong></div>
-            <div><b>{energy.recoveredMj[focus].toFixed(2)} MJ</b><span>RECOVERED BY THIS POINT</span><strong>MODELLED</strong></div>
-            <div><b>{energy.deployedMj[focus].toFixed(2)} MJ</b><span>DEPLOYED BY THIS POINT</span><strong>MODELLED</strong></div>
-          </div>
-          <p className="ov-notes">No measured battery or ERS trace is included here: FastF1 publishes the inputs shown above, not team-specific state of charge or deployment.</p>
-        </section>
-        <section className="ov-panel ov-evidence">
-          <div className="ov-panel-head"><span>ENERGY DATA AVAILABILITY</span><DataBadge tone="real">FASTF1 CHECK</DataBadge></div>
-          <div className="ov-evidence-item"><i>00</i><div><b>Battery state of charge</b><p>Not exposed by FastF1 for this session. No measured value is displayed.</p></div><strong>NOT AVAILABLE</strong></div>
-          <div className="ov-evidence-item"><i>00</i><div><b>MGU-K / boost deployment</b><p>Not exposed by FastF1. The model cannot claim when the driver pressed an overtake button.</p></div><strong>NOT AVAILABLE</strong></div>
-          <div className="ov-evidence-item"><i>00</i><div><b>DRS flap state</b><p>Available from the real car telemetry and charted in the telemetry tab.</p></div><strong>AVAILABLE</strong></div>
-          <div className="ov-panel-head second"><span>MODEL INPUTS / FOR PROXY ONLY</span><b>{ENERGY_MODEL_VERSION}</b></div>
-          <div className="ov-evidence-item"><i>01</i><div><b>MGU-K power limit</b><p>Published regulation ceiling used for both deployment and recovery rate.</p></div><strong>{REGULATION.mguKMaxPowerKw} kW</strong></div>
-          <div className="ov-evidence-item"><i>02</i><div><b>Recovery limit per lap</b><p>Caps how much the braking zones on this lap can return to the store.</p></div><strong>{REGULATION.mguKRecoveryLimitMjPerLap} MJ</strong></div>
-          <div className="ov-evidence-item"><i>03</i><div><b>Store deployment limit per lap</b><p>Caps energy drawn from the battery. MGU-H supply to the MGU-K is not counted against it.</p></div><strong>{REGULATION.esDeploymentLimitMjPerLap} MJ</strong></div>
-          <div className="ov-evidence-item calibrated"><i>04</i><div><b>MGU-H direct supply</b><p>Calibrated by us, not a regulation limit. Fitted so the lap stays energy-plausible.</p></div><strong>{CALIBRATION.mguHDirectSupplyKw} kW</strong></div>
-          <div className="ov-evidence-item calibrated"><i>05</i><div><b>Assumed start reserve</b><p>The one unverifiable input. Set above neutral because Leclerc stated he recharged on the penultimate lap.</p></div><strong>{DEFAULT_START_RESERVE_PCT} %</strong></div>
-        </section>
-      </div>}
+      {tab === 'ENERGY' && (
+        <EnergyTab sel={raceSel} energy={engine.energy} />
+      )}
 
-      {tab === 'OVERTAKE' && <div className="ov-overtake-layout">
-        <section className="ov-panel ov-overtake-hero">
-          <div className="ov-panel-head"><span>OVERTAKE WINDOW / REPLAY</span><DataBadge tone="derived">DERIVED SCORE</DataBadge></div>
-          <strong>{feasibility}%</strong>
-          <p>FEASIBILITY SCORE · REAL SPEED/GAP/DRS INPUTS</p>
-          <div className="ov-meter large"><i style={{ width: `${feasibility}%` }} /></div>
-          <div className="ov-risk">
-            <span>ENGINE {DECISION_ENGINE_VERSION}</span>
-            <b className={feasibility > 70 ? 'safe' : 'watch'}>{decision.recommendation}</b>
-          </div>
-          <button className="ov-play" onClick={() => setDrsOverride(drsOverride === null ? !drsReal : null)}>
-            {drsOverride === null ? `COUNTERFACTUAL: FORCE DRS ${drsReal ? 'CLOSED' : 'OPEN'}` : `RESET TO REAL DRS (${drsReal ? 'OPEN' : 'CLOSED'})`}
-          </button>
-          <div className="ov-real-callout"><DataBadge tone="real">OBSERVED PASS</DataBadge><b>{onTrackPasses.length} on-track position changes</b><p>Race-control and classified-position changes are kept separate from pit-cycle swaps.</p></div>
-        </section>
-        <section className="ov-panel ov-factor-panel">
-          <div className="ov-panel-head"><span>WHAT IS DRIVING THE RECOMMENDATION?</span><b>EXPLAINABLE</b></div>
-          {decision.factors.map((factor) => <div className="ov-factor" key={factor.label}>
-            <span>{factor.label} <DataBadge tone={factor.source}>{factor.source.toUpperCase()}</DataBadge></span>
-            <b className={factor.tone}>{factor.value}</b>
-            <i style={{ width: factor.tone === 'positive' ? '78%' : factor.tone === 'neutral' ? '55%' : '32%' }} />
-            <em>{factor.note}</em>
-          </div>)}
-          <div className="ov-panel-head second"><span>OBSERVED PASS EVENTS</span><DataBadge tone="real">REAL RACE HISTORY</DataBadge></div>
-          {onTrackPasses.slice(-4).map((point) => <div className="ov-factor" key={`pass-${point.lap}`}>
-            <span>Lap {point.lap} · {point.gained_position} took the position from {point.lost_position}</span>
-            <b className="positive">{point.gap_before_s?.toFixed(3) ?? '—'}s gap before</b>
-            <em>{point.attacker_tyre.compound} {point.attacker_tyre.age_laps}L vs {point.defender_tyre.compound} {point.defender_tyre.age_laps}L</em>
-          </div>)}
-        </section>
-      </div>}
+      {tab === 'OVERTAKE' && (
+        <OvertakeTab sel={raceSel} decision={engine.decision} preds={engine.preds} report={engine.report} />
+      )}
 
       {tab === 'LEGENDS' && <div className="ov-legend-grid">
         <section className="ov-panel">

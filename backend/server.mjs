@@ -1,6 +1,6 @@
 import http from 'node:http'
 import { spawn } from 'node:child_process'
-import { readFile, mkdir, writeFile, rename, rm } from 'node:fs/promises'
+import { readFile, readdir, mkdir, writeFile, rename, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { detectMoodFromText, detectMoodFromAudio } from './src/mood.mjs'
@@ -316,6 +316,29 @@ function runPython(script, args, timeoutMs) {
   })
 }
 
+function runPythonWithInput(script, args, stdinData, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('python', [path.join(root, 'scripts', script), ...args])
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`${script} timed out after ${Math.round(timeoutMs / 1000)}s`))
+    }, timeoutMs)
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', (error) => { clearTimeout(timer); reject(error) })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (code === 0) return resolve(stdout)
+      const detail = stderr.trim().split('\n').filter(Boolean).pop() || `exit ${code}`
+      reject(new Error(`${script} failed: ${detail}`))
+    })
+    child.stdin.on('error', () => {})
+    child.stdin.end(stdinData)
+  })
+}
+
 const ONDEMAND_LOCK = path.join(F1_CACHE_DIR, '.ondemand.lock')
 let onDemandInFlight = 0
 
@@ -589,6 +612,120 @@ export async function handler(request, response) {
     } catch (error) {
       return json(response, 502, { error: error.message })
     }
+  }
+
+  // GET /api/f1/energy?year&round&session&driver&lap — physics energy trace
+  // for one lap under 2026 reg ceilings (MODELLED, citations included).
+  if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/api/f1/energy') {
+    const params = new URL(request.url, 'http://localhost').searchParams
+    const year = params.get('year') || ''
+    const round = params.get('round') || ''
+    const session = params.get('session') || ''
+    const driver = (params.get('driver') || '').toUpperCase()
+    const lap = params.get('lap') || ''
+    if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(round) || !session || !/^[A-Z]{3}$/.test(driver) || !/^\d{1,3}$/.test(lap)) {
+      return json(response, 400, { error: 'year, round, session, driver and lap are required' })
+    }
+    try {
+      const cacheRel = `energy/${year}/${round}_${f1Slug(session)}/${driver}_${lap}.json`
+      return json(response, 200, await f1CachedOrFetch(cacheRel, 'fetch_f1_energy.py', ['--year', year, '--round', round, '--session', session, '--driver', driver, '--lap', lap], 300000))
+    } catch (error) {
+      return json(response, 502, { error: error.message })
+    }
+  }
+
+  // GET /api/f1/energyrace?year&round&session&driver — whole-race battery
+  // trace + validation gates (MODELLED). Slow on first fetch (~1-3 min).
+  if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/api/f1/energyrace') {
+    const params = new URL(request.url, 'http://localhost').searchParams
+    const year = params.get('year') || ''
+    const round = params.get('round') || ''
+    const session = params.get('session') || ''
+    const driver = (params.get('driver') || '').toUpperCase()
+    if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(round) || !session || !/^[A-Z]{3}$/.test(driver)) {
+      return json(response, 400, { error: 'year, round, session and driver are required' })
+    }
+    try {
+      const cacheRel = `energyrace/${year}/${round}_${f1Slug(session)}/${driver}.json`
+      return json(response, 200, await f1CachedOrFetch(cacheRel, 'fetch_f1_energy_race.py', ['--year', year, '--round', round, '--session', session, '--driver', driver], 600000))
+    } catch (error) {
+      return json(response, 502, { error: error.message })
+    }
+  }
+
+  // POST /api/f1/overtake/predict — score decision points with the trained
+  // RandomForest. Body: {features:{...}} | {rows:[{...}]} | [{...}].
+  // Returns P(SAVE)/P(DELAY)/P(ATTACK) + recommended label per row.
+  if (request.method === 'POST' && new URL(request.url, 'http://localhost').pathname === '/api/f1/overtake/predict') {
+    let input
+    try {
+      input = await readJsonBody(request)
+    } catch {
+      return json(response, 400, { error: 'request body must be valid JSON' })
+    }
+    try {
+      const out = await runPythonWithInput('predict_overtake.py', [], JSON.stringify(input), 60000)
+      return json(response, 200, JSON.parse(out))
+    } catch (error) {
+      return json(response, 502, { error: error.message })
+    }
+  }
+
+  // GET /api/f1/decisionpoints?year&round&session — pre-extracted overtake
+  // decision points for a race, each labelled ATTACK/DELAY/SAVE. Served straight
+  // from the batch-extracted cache (no fetch), so it is instant.
+  if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/api/f1/decisionpoints') {
+    const params = new URL(request.url, 'http://localhost').searchParams
+    const year = params.get('year') || ''
+    const round = params.get('round') || ''
+    const session = params.get('session') || ''
+    if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(round) || !session) {
+      return json(response, 400, { error: 'year, round and session are required' })
+    }
+    const cachePath = path.join(F1_CACHE_DIR, 'decision-points', year, `${round}_${f1Slug(session)}.json`)
+    try {
+      return json(response, 200, JSON.parse(await readFile(cachePath, 'utf8')))
+    } catch {
+      return json(response, 404, { error: `no decision points extracted for ${year} round ${round} ${session}` })
+    }
+  }
+
+  // GET /api/f1/modelreport — trained-model provenance (temporal split, holdout
+  // accuracy, feature importances) so the UI never hardcodes training facts.
+  if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/api/f1/modelreport') {
+    try {
+      const reportPath = path.join(F1_CACHE_DIR, 'models', 'overtake_report.json')
+      return json(response, 200, JSON.parse(await readFile(reportPath, 'utf8')))
+    } catch {
+      return json(response, 404, { error: 'model not trained yet' })
+    }
+  }
+
+  // GET /api/f1/rounds?year — round numbers + race names already extracted for a
+  // season, read straight from the decision-point cache so the STRATEGY/OVERTAKE/
+  // ENERGY selector can show real event names instantly, without spawning FastF1
+  // or spending rate-limit budget. Distinct path from the FastF1-backed
+  // /api/f1/events (used by LapExplorer) which it must not shadow.
+  if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/api/f1/rounds') {
+    const year = new URL(request.url, 'http://localhost').searchParams.get('year') || ''
+    if (!/^\d{4}$/.test(year)) return json(response, 400, { error: 'year is required' })
+    const dir = path.join(F1_CACHE_DIR, 'decision-points', year)
+    const events = []
+    try {
+      for (const file of await readdir(dir)) {
+        const match = file.match(/^(\d+)_[a-z0-9]+\.json$/)
+        if (!match) continue
+        try {
+          const payload = JSON.parse(await readFile(path.join(dir, file), 'utf8'))
+          const round = Number(match[1])
+          if (payload.eventName && !events.some((e) => e.round === round)) {
+            events.push({ round, name: payload.eventName })
+          }
+        } catch { /* skip unreadable cache entry */ }
+      }
+    } catch { /* no races extracted for this year yet */ }
+    events.sort((a, b) => a.round - b.round)
+    return json(response, 200, { year, events })
   }
 
   // GET /api/f1/trackmap?year&round&session — circuit outline + corners for a session.

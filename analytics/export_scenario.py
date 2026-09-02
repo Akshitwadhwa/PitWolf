@@ -70,6 +70,7 @@ def braking_zones(distance, brake, min_length_m=25):
 
 
 def main():
+    CACHE.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(CACHE))
     session = fastf1.get_session(YEAR, EVENT, SESSION)
     session.load(telemetry=True, laps=True, weather=True)

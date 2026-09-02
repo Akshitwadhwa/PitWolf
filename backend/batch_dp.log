@@ -1,0 +1,404 @@
+[1/173] ok 2018 R1 (29s)
+[2/173] ok 2018 R2 (42s)
+[3/173] ok 2018 R3 (73s)
+[4/173] ok 2018 R4 (105s)
+[5/173] ok 2018 R5 (134s)
+[6/173] ok 2018 R6 (173s)
+[7/173] ok 2018 R7 (202s)
+[8/173] ok 2018 R8 (237s)
+[9/173] ok 2018 R9 (263s)
+[10/173] ok 2018 R10 (290s)
+[11/173] ok 2018 R11 (318s)
+[12/173] ok 2018 R12 (436s)
+[13/173] ok 2018 R13 (561s)
+RATE-LIMITED 2018 R14, sleeping 600s
+RATE-LIMITED 2018 R14, sleeping 600s
+RATE-LIMITED 2018 R14, sleeping 600s
+RATE-LIMITED 2018 R14, sleeping 600s
+FAIL 2018 R14 R: The data you are trying to access has not been loaded yet. See `Session.load`
+[14/173] fail 2018 R14 (3082s)
+[15/173] ok 2018 R15 (3109s)
+[16/173] ok 2018 R16 (3133s)
+[17/173] ok 2018 R17 (3155s)
+[18/173] ok 2018 R18 (3181s)
+[19/173] ok 2018 R19 (3208s)
+[20/173] ok 2018 R20 (3233s)
+[21/173] ok 2018 R21 (3243s)
+[22/173] ok 2019 R1 (3268s)
+[23/173] ok 2019 R2 (3294s)
+[24/173] ok 2019 R3 (3321s)
+[25/173] ok 2019 R4 (3349s)
+[26/173] ok 2019 R5 (3378s)
+[27/173] ok 2019 R6 (3407s)
+[28/173] ok 2019 R7 (3436s)
+[29/173] ok 2019 R8 (3472s)
+[30/173] ok 2019 R9 (3507s)
+[31/173] ok 2019 R10 (3544s)
+[32/173] ok 2019 R11 (3574s)
+[33/173] ok 2019 R12 (3603s)
+[34/173] ok 2019 R13 (3630s)
+[35/173] ok 2019 R14 (3658s)
+[36/173] ok 2019 R15 (3692s)
+[37/173] ok 2019 R16 (3721s)
+[38/173] ok 2019 R17 (3758s)
+[39/173] ok 2019 R18 (3789s)
+[40/173] ok 2019 R19 (3826s)
+[41/173] ok 2019 R20 (3856s)
+[42/173] ok 2019 R21 (3894s)
+[43/173] ok 2020 R1 (3936s)
+[44/173] ok 2020 R2 (3978s)
+[45/173] ok 2020 R3 (4013s)
+[46/173] ok 2020 R4 (4045s)
+[47/173] ok 2020 R5 (4080s)
+[48/173] ok 2020 R6 (4112s)
+[49/173] ok 2020 R7 (4148s)
+[50/173] ok 2020 R8 (4181s)
+[51/173] ok 2020 R9 (4231s)
+[52/173] ok 2020 R10 (4269s)
+[53/173] ok 2020 R11 (4296s)
+[54/173] ok 2020 R12 (4332s)
+[55/173] ok 2020 R13 (4361s)
+[56/173] ok 2020 R14 (4371s)
+[57/173] ok 2020 R15 (4416s)
+[58/173] ok 2020 R16 (4455s)
+[59/173] ok 2020 R17 (4465s)
+[60/173] ok 2021 R1 (4495s)
+[61/173] ok 2021 R2 (4529s)
+[62/173] ok 2021 R3 (4561s)
+[63/173] ok 2021 R4 (4599s)
+[64/173] ok 2021 R5 (4633s)
+[65/173] ok 2021 R6 (4673s)
+[66/173] ok 2021 R7 (4709s)
+[67/173] ok 2021 R8 (4738s)
+[68/173] ok 2021 R9 (4779s)
+[69/173] ok 2021 R10 (4817s)
+[70/173] ok 2021 R11 (4858s)
+[71/173] ok 2021 R12 (4904s)
+[72/173] ok 2021 R13 (4958s)
+[73/173] ok 2021 R14 (4990s)
+[74/173] ok 2021 R15 (5023s)
+[75/173] ok 2021 R16 (5056s)
+[76/173] ok 2021 R17 (5095s)
+[77/173] ok 2021 R18 (5133s)
+[78/173] ok 2021 R19 (5175s)
+[79/173] ok 2021 R20 (5208s)
+[80/173] ok 2021 R21 (5245s)
+[81/173] ok 2021 R22 (5285s)
+[82/173] ok 2022 R1 (5323s)
+[83/173] ok 2022 R2 (5355s)
+[84/173] ok 2022 R3 (5388s)
+[85/173] ok 2022 R4 (5430s)
+[86/173] ok 2022 R5 (5462s)
+[87/173] ok 2022 R6 (5504s)
+[88/173] ok 2022 R7 (5558s)
+[89/173] ok 2022 R8 (5598s)
+[90/173] ok 2022 R9 (5640s)
+[91/173] ok 2022 R10 (5684s)
+[92/173] ok 2022 R11 (5719s)
+[93/173] ok 2022 R12 (5747s)
+[94/173] ok 2022 R13 (5786s)
+[95/173] ok 2022 R14 (5817s)
+[96/173] ok 2022 R15 (5855s)
+[97/173] ok 2022 R16 (5886s)
+[98/173] ok 2022 R17 (5945s)
+[99/173] ok 2022 R18 (6017s)
+[100/173] ok 2022 R19 (6051s)
+[101/173] ok 2022 R20 (6088s)
+RATE-LIMITED 2022 R21, sleeping 600s
+RATE-LIMITED 2022 R21, sleeping 600s
+RATE-LIMITED 2022 R21, sleeping 600s
+RATE-LIMITED 2022 R21, sleeping 600s
+FAIL 2022 R21 R: The data you are trying to access has not been loaded yet. See `Session.load`
+[102/173] fail 2022 R21 (9537s)
+[103/173] ok 2022 R22 (9577s)
+[104/173] ok 2023 R1 (9608s)
+[105/173] ok 2023 R2 (9647s)
+[106/173] ok 2023 R3 (9685s)
+[107/173] ok 2023 R4 (9725s)
+[108/173] ok 2023 R5 (9765s)
+[109/173] ok 2023 R6 (9803s)
+[110/173] ok 2023 R7 (9834s)
+[111/173] ok 2023 R8 (9871s)
+[112/173] ok 2023 R9 (9904s)
+[113/173] ok 2023 R10 (9942s)
+[114/173] ok 2023 R11 (9978s)
+[115/173] ok 2023 R12 (10007s)
+Request for URL https://api.jolpi.ca/ergast/f1/2023/13/laps/1.json failed; using cached response
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 534, in _make_request
+    response = conn.getresponse()
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connection.py", line 571, in getresponse
+    httplib_response = super().getresponse()
+  File "C:\Python313\Lib\http\client.py", line 1430, in getresponse
+    response.begin()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\http\client.py", line 331, in begin
+    version, status, reason = self._read_status()
+                              ~~~~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\http\client.py", line 292, in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+               ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\socket.py", line 719, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+  File "C:\Python313\Lib\ssl.py", line 1304, in recv_into
+    return self.read(nbytes, buffer)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\ssl.py", line 1138, in read
+    return self._sslobj.read(len, buffer)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+TimeoutError: The read operation timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests\adapters.py", line 644, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\util\retry.py", line 490, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\util\util.py", line 39, in reraise
+    raise value
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 536, in _make_request
+    self._raise_timeout(err=e, url=url, timeout_value=read_timeout)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 367, in _raise_timeout
+    raise ReadTimeoutError(
+        self, url, f"Read timed out. (read timeout={timeout_value})"
+    ) from err
+urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='api.jolpi.ca', port=443): Read timed out. (read timeout=5.0)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests_cache\session.py", line 311, in _resend
+    response = self._send_and_cache(request, actions, cached_response, **kwargs)
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests_cache\session.py", line 279, in _send_and_cache
+    response = super().send(request, **kwargs)
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\fastf1\req.py", line 112, in send
+    return super().send(request, **kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests\sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests\adapters.py", line 690, in send
+    raise ReadTimeout(e, request=request)
+requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.jolpi.ca', port=443): Read timed out. (read timeout=5.0)
+[116/173] ok 2023 R13 (10049s)
+[117/173] ok 2023 R14 (10084s)
+[118/173] ok 2023 R15 (10121s)
+[119/173] ok 2023 R16 (10151s)
+[120/173] ok 2023 R17 (10183s)
+[121/173] ok 2023 R18 (10214s)
+[122/173] ok 2023 R19 (10249s)
+[123/173] ok 2023 R20 (10287s)
+[126/173] ok 2024 R1 (10298s)
+[127/173] ok 2024 R2 (10331s)
+[128/173] ok 2024 R3 (10360s)
+[129/173] ok 2024 R4 (10393s)
+[130/173] ok 2024 R5 (10441s)
+[131/173] ok 2024 R6 (10484s)
+[132/173] ok 2024 R7 (10520s)
+[133/173] ok 2024 R8 (10532s)
+[134/173] ok 2024 R9 (10562s)
+[135/173] ok 2024 R10 (10595s)
+RATE-LIMITED 2024 R11, sleeping 600s
+[136/173] ok 2024 R11 (11247s)
+Request for URL https://api.jolpi.ca/ergast/f1/2024/12/laps/1.json failed; using cached response
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 534, in _make_request
+    response = conn.getresponse()
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connection.py", line 571, in getresponse
+    httplib_response = super().getresponse()
+  File "C:\Python313\Lib\http\client.py", line 1430, in getresponse
+    response.begin()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\http\client.py", line 331, in begin
+    version, status, reason = self._read_status()
+                              ~~~~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\http\client.py", line 292, in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+               ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\socket.py", line 719, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+  File "C:\Python313\Lib\ssl.py", line 1304, in recv_into
+    return self.read(nbytes, buffer)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\ssl.py", line 1138, in read
+    return self._sslobj.read(len, buffer)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+TimeoutError: The read operation timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests\adapters.py", line 644, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\util\retry.py", line 490, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\util\util.py", line 39, in reraise
+    raise value
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 536, in _make_request
+    self._raise_timeout(err=e, url=url, timeout_value=read_timeout)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 367, in _raise_timeout
+    raise ReadTimeoutError(
+        self, url, f"Read timed out. (read timeout={timeout_value})"
+    ) from err
+urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='api.jolpi.ca', port=443): Read timed out. (read timeout=5.0)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests_cache\session.py", line 311, in _resend
+    response = self._send_and_cache(request, actions, cached_response, **kwargs)
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests_cache\session.py", line 279, in _send_and_cache
+    response = super().send(request, **kwargs)
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\fastf1\req.py", line 112, in send
+    return super().send(request, **kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests\sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests\adapters.py", line 690, in send
+    raise ReadTimeout(e, request=request)
+requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.jolpi.ca', port=443): Read timed out. (read timeout=5.0)
+[137/173] ok 2024 R12 (11286s)
+[138/173] ok 2024 R13 (11301s)
+[139/173] ok 2024 R14 (11311s)
+[140/173] ok 2024 R15 (11342s)
+[142/173] ok 2024 R17 (11352s)
+[143/173] ok 2024 R18 (11363s)
+[144/173] ok 2024 R19 (11402s)
+[145/173] ok 2024 R20 (11432s)
+Request for URL https://api.jolpi.ca/ergast/f1/2024/21/laps/1.json failed; using cached response
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 534, in _make_request
+    response = conn.getresponse()
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connection.py", line 571, in getresponse
+    httplib_response = super().getresponse()
+  File "C:\Python313\Lib\http\client.py", line 1430, in getresponse
+    response.begin()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\http\client.py", line 331, in begin
+    version, status, reason = self._read_status()
+                              ~~~~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\http\client.py", line 292, in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+               ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\socket.py", line 719, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+  File "C:\Python313\Lib\ssl.py", line 1304, in recv_into
+    return self.read(nbytes, buffer)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\ssl.py", line 1138, in read
+    return self._sslobj.read(len, buffer)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+TimeoutError: The read operation timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests\adapters.py", line 644, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\util\retry.py", line 490, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\util\util.py", line 39, in reraise
+    raise value
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 536, in _make_request
+    self._raise_timeout(err=e, url=url, timeout_value=read_timeout)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\urllib3\connectionpool.py", line 367, in _raise_timeout
+    raise ReadTimeoutError(
+        self, url, f"Read timed out. (read timeout={timeout_value})"
+    ) from err
+urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='api.jolpi.ca', port=443): Read timed out. (read timeout=5.0)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests_cache\session.py", line 311, in _resend
+    response = self._send_and_cache(request, actions, cached_response, **kwargs)
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests_cache\session.py", line 279, in _send_and_cache
+    response = super().send(request, **kwargs)
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\fastf1\req.py", line 112, in send
+    return super().send(request, **kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests\sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "C:\Users\ASUS\AppData\Roaming\Python\Python313\site-packages\requests\adapters.py", line 690, in send
+    raise ReadTimeout(e, request=request)
+requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.jolpi.ca', port=443): Read timed out. (read timeout=5.0)
+[146/173] ok 2024 R21 (11449s)
+[147/173] ok 2024 R22 (11488s)
+[148/173] ok 2024 R23 (11499s)
+[149/173] ok 2024 R24 (11510s)
+[150/173] ok 2025 R1 (11549s)
+[151/173] ok 2025 R2 (11578s)
+[152/173] ok 2025 R3 (11607s)
+[153/173] ok 2025 R4 (11641s)
+[154/173] ok 2025 R5 (11677s)
+[155/173] ok 2025 R6 (11705s)
+[156/173] ok 2025 R7 (11742s)
+[157/173] ok 2025 R8 (11778s)
+[158/173] ok 2025 R9 (11808s)
+[159/173] ok 2025 R10 (11839s)
+[160/173] ok 2025 R11 (11880s)
+[161/173] ok 2025 R12 (11912s)
+[162/173] ok 2025 R13 (11949s)
+[163/173] ok 2025 R14 (11980s)
+[164/173] ok 2025 R15 (12011s)
+[165/173] ok 2025 R16 (12022s)
+[166/173] ok 2025 R17 (12033s)
+[167/173] ok 2025 R18 (12063s)
+[168/173] ok 2025 R19 (12102s)
+[169/173] ok 2025 R20 (12133s)
+[170/173] ok 2025 R21 (12145s)
+[171/173] ok 2025 R22 (12174s)
+[172/173] ok 2025 R23 (12185s)
+[173/173] ok 2025 R24 (12196s)
+SUMMARY 2018-2025 ok=168 skip=3 fail=2
