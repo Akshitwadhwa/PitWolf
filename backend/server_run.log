@@ -1,0 +1,11 @@
+
+> pitwall-copilot@0.1.0 server
+> npm --workspace backend run start
+
+
+> pitwall-copilot-backend@0.1.0 start
+> node --env-file-if-exists=../.env --env-file-if-exists=.env server.mjs
+
+../.env not found. Continuing without it.
+.env not found. Continuing without it.
+Pitwall API listening on http://localhost:8787

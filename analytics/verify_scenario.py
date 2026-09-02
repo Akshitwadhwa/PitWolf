@@ -8,10 +8,12 @@ rather than taking press reports at face value.
 import fastf1
 import pandas as pd
 
+import os
 CACHE = "analytics/cache"
 ATTACKER = "LEC"
 DEFENDER = "PER"
 
+os.makedirs(CACHE, exist_ok=True)
 fastf1.Cache.enable_cache(CACHE)
 
 session = fastf1.get_session(2023, "Las Vegas", "R")
