@@ -36,6 +36,197 @@ function GatePill({ pass }) {
   return <b className={`dt-gate ${pass ? 'pass' : 'fail'}`}>{pass ? '✓ PASS' : '✗ FAIL'}</b>
 }
 
+// ─── Energy-aware recursive counterfactual tree ─────────────────────────────
+
+const TREE_ACTIONS = ['ATTACK', 'SAVE', 'DELAY']
+const TREE_CAPACITY_MJ = 4.0
+const TREE_ENERGY = {
+  ATTACK: { cost: 0.85, harvest: 0.05 },
+  SAVE: { cost: 0.15, harvest: 0.35 },
+  DELAY: { cost: 0.40, harvest: 0.15 },
+}
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+
+function buildSurrogateSoc(laps, rows, driver, totalLaps) {
+  const explicit = new Map((laps ?? []).map((lap) => [Number(lap.lap), Number(lap.socEndMj)]))
+  const events = rows.filter((row) => row.driver === driver || row.defender === driver)
+  let soc = TREE_CAPACITY_MJ * 0.7
+  const profile = {}
+  for (let lap = 1; lap <= totalLaps; lap += 1) {
+    if (explicit.has(lap) && Number.isFinite(explicit.get(lap))) {
+      soc = clamp(explicit.get(lap), 0, TREE_CAPACITY_MJ)
+      profile[lap] = soc
+      continue
+    }
+    const event = [...events].reverse().find((row) => row.lap <= lap) ?? events[0]
+    const pace = clamp(0.5 + ((event?.speedDeltaKph ?? 0) / 40) + ((event?.closingRateS ?? 0) / 8), 0.15, 0.9)
+    const tyreLoad = clamp(Math.abs(event?.tyreAgeDiff ?? 0) / 20, 0, 0.3)
+    const deploy = 0.25 + (0.5 * pace) + tyreLoad
+    const harvest = 0.22 + (0.24 * (1 - pace))
+    soc = clamp(soc - deploy + harvest, 0, TREE_CAPACITY_MJ)
+    if (event?.pitDistorted) soc = clamp(soc + 1.0, 0, TREE_CAPACITY_MJ)
+    profile[lap] = soc
+  }
+  return profile
+}
+
+function treeActionProbability(action, row, reverseRow, ourSoc, defenderSoc, ahead) {
+  const probabilities = row?.pred?.probabilities ?? {}
+  const reverseProbabilities = reverseRow?.pred?.probabilities ?? {}
+  const ownReserve = clamp(ourSoc / TREE_CAPACITY_MJ, 0, 1)
+  const opponentReserve = clamp(defenderSoc / TREE_CAPACITY_MJ, 0, 1)
+  if (!ahead) {
+    const base = action === 'ATTACK'
+      ? (probabilities.ATTACK ?? 0.2)
+      : action === 'DELAY'
+        ? (probabilities.DELAY ?? 0.25) * 0.72
+        : (probabilities.SAVE ?? 0.55) * 0.08
+    return clamp(base * (0.55 + (0.5 * ownReserve)) * (1.05 - (0.4 * opponentReserve)), 0.01, 0.98)
+  }
+  // Once ahead, the selected car is defending. The old defender becomes the
+  // attacker and can spend whatever energy remains to reverse the pass.
+  const opponentAttack = reverseProbabilities.ATTACK ?? probabilities.ATTACK ?? 0.25
+  const response = opponentAttack * (0.45 + (0.65 * opponentReserve)) * (1.05 - (0.25 * ownReserve))
+  const defensiveUse = action === 'ATTACK' ? 0.9 : action === 'DELAY' ? 0.68 : 0.48
+  return clamp(1 - (response * defensiveUse), 0.02, 0.99)
+}
+
+function buildStrategyTree({ focus, rows, energyLaps, totalLaps, holdLaps = 6, finishPositions = {} }) {
+  if (!focus) return null
+  const startLap = Number(focus.lap)
+  const horizon = Math.max(0, Math.min(holdLaps, totalLaps - startLap))
+  const selected = focus.driver
+  const initialDefender = focus.defender
+  const ourProfile = buildSurrogateSoc(energyLaps, rows, selected, totalLaps)
+  const defenderProfile = buildSurrogateSoc([], rows, initialDefender, totalLaps)
+  let nodeCount = 0
+  let leafCount = 0
+
+  const rowAt = (lap, driver, defender) => rows.find((row) => row.lap === lap && row.driver === driver && row.defender === defender)
+
+  const expand = (state, depth) => {
+    nodeCount += 1
+    if (depth >= horizon || state.lap >= totalLaps) {
+      leafCount += 1
+      return {
+        value: (state.leadLaps * 100) + (state.aheadProbability * 20) + (state.ourSoc * 2),
+        node: { lap: state.lap, role: state.ahead ? 'DEFENDING' : 'ATTACKING', leadLaps: state.leadLaps, aheadProbability: state.aheadProbability, children: [] },
+      }
+    }
+
+    const lap = state.lap
+    const forwardRow = rowAt(lap, selected, initialDefender) ?? focus
+    const reverseRow = rowAt(lap, initialDefender, selected)
+    const observed = state.ahead ? reverseRow : forwardRow
+    const children = TREE_ACTIONS.map((action) => {
+      const energy = TREE_ENERGY[action]
+      let ourSoc = clamp(state.ourSoc - energy.cost + energy.harvest, 0, TREE_CAPACITY_MJ)
+      let defenderSoc = clamp(state.defenderSoc - 0.2 + (state.ahead ? 0.08 : 0.22), 0, TREE_CAPACITY_MJ)
+      const pitWindow = Boolean(observed?.pitDistorted)
+      const pitPlan = pitWindow && action !== 'ATTACK' ? 'BOX / ENERGY RESET' : pitWindow ? 'STAY / ATTACK BEFORE BOX' : 'STAY OUT'
+      if (pitWindow && action !== 'ATTACK') ourSoc = clamp(ourSoc + 1.0, 0, TREE_CAPACITY_MJ)
+      const survival = treeActionProbability(action, forwardRow, reverseRow, ourSoc, defenderSoc, state.ahead)
+      const nextAheadProbability = state.ahead
+        ? state.aheadProbability * survival
+        : state.aheadProbability + ((1 - state.aheadProbability) * survival)
+      const leadLaps = state.leadLaps + nextAheadProbability
+      const next = expand({
+        lap: lap + 1,
+        ahead: nextAheadProbability >= 0.5,
+        aheadProbability: nextAheadProbability,
+        leadLaps,
+        ourSoc,
+        defenderSoc,
+      }, depth + 1)
+      return {
+        action,
+        probability: survival,
+        ourSoc,
+        defenderSoc,
+        pitPlan,
+        result: next,
+      }
+    })
+    const best = children.reduce((winner, child) => child.result.value > winner.result.value ? child : winner, children[0])
+    return {
+      value: best.result.value,
+      node: {
+        lap,
+        role: state.ahead ? 'DEFENDING' : 'ATTACKING',
+        leadLaps: state.leadLaps,
+        aheadProbability: state.aheadProbability,
+        ourSoc: state.ourSoc,
+        defenderSoc: state.defenderSoc,
+        bestAction: best.action,
+        children: children.map((child) => ({
+          action: child.action,
+          probability: child.probability,
+          leadLaps: child.result.node.leadLaps,
+          ourSoc: child.ourSoc,
+          defenderSoc: child.defenderSoc,
+          pitPlan: child.pitPlan,
+          best: child.action === best.action,
+          next: child.result.node,
+        })),
+      },
+    }
+  }
+
+  const initialOurSoc = ourProfile[startLap] ?? TREE_CAPACITY_MJ * 0.7
+  const initialDefenderSoc = defenderProfile[startLap] ?? TREE_CAPACITY_MJ * 0.7
+  const tree = expand({
+    lap: startLap,
+    ahead: false,
+    aheadProbability: 0,
+    leadLaps: 0,
+    ourSoc: initialOurSoc,
+    defenderSoc: initialDefenderSoc,
+  }, 0)
+
+  const path = []
+  let cursor = tree.node
+  while (cursor?.children?.length) {
+    const best = cursor.children.find((child) => child.best) ?? cursor.children[0]
+    path.push({ lap: cursor.lap, role: cursor.role, action: best.action, probability: best.probability, leadLaps: best.leadLaps, ourSoc: best.ourSoc, defenderSoc: best.defenderSoc, pitPlan: best.pitPlan })
+    cursor = best.next
+  }
+  const actualLeadLaps = focus.held ? holdLaps : focus.passedNow ? 1 : 0
+  return {
+    tree: tree.node,
+    path,
+    nodeCount,
+    leafCount,
+    horizon,
+    actualLeadLaps,
+    expectedLeadLaps: path.length ? path[path.length - 1].leadLaps : 0,
+    actualFinishPosition: finishPositions?.[selected] ?? null,
+    success: path.length > 0 && path[path.length - 1].leadLaps > actualLeadLaps,
+    selected,
+    defender: initialDefender,
+  }
+}
+
+function StrategyTreePanel({ tree }) {
+  if (!tree) return null
+  return <section className="ov-panel dt-tree-panel">
+    <div className="ov-panel-head"><span>RECURSIVE STRATEGY TREE / 3 ACTIONS PER LAP</span><Badge tone="derived">{tree.nodeCount.toLocaleString()} NODES</Badge></div>
+    <div className="dt-tree-summary">
+      <div><b>{tree.expectedLeadLaps.toFixed(1)}</b><span>EXPECTED LAPS AHEAD</span></div>
+      <div><b>{tree.actualLeadLaps}</b><span>ACTUAL LABEL HORIZON</span></div>
+      <div><b>{tree.actualFinishPosition ? `P${tree.actualFinishPosition}` : '—'}</b><span>REAL FINISH POSITION</span></div>
+      <div><b className={tree.success ? 'positive' : ''}>{tree.success ? 'BETTER' : 'NOT YET'}</b><span>COUNTERFACTUAL RESULT</span></div>
+    </div>
+    <div className="dt-tree-path">
+      {tree.path.map((step) => <div className="dt-tree-step" key={`${step.lap}-${step.action}`}>
+        <span>L{step.lap}</span><b className={step.action === 'ATTACK' ? 'tree-attack' : step.action === 'SAVE' ? 'tree-save' : 'tree-delay'}>{step.action}</b>
+        <em>{step.role} · {Math.round(step.probability * 100)}% · lead {step.leadLaps.toFixed(1)}L · {step.pitPlan} · SoC {step.ourSoc.toFixed(2)} / defender {step.defenderSoc.toFixed(2)} MJ</em>
+      </div>)}
+    </div>
+    <p className="ov-notes">Every node evaluates ATTACK, SAVE, and DELAY. After a pass, the selected driver becomes the defender and the opponent’s remaining energy drives the repass risk. The tree optimizes continuous laps ahead over the {tree.horizon}-lap persistence horizon; energy values are modelled surrogates, not measured battery telemetry.</p>
+  </section>
+}
+
 // ─── Race / driver selector ──────────────────────────────────────────────────
 
 const YEARS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018]
@@ -311,7 +502,8 @@ export function EnergyTab({ sel, energy }) {
 export function StrategyTab({ sel, decision, preds, energy }) {
   const dp = decision.data
   const rows = dp?.rows ?? []
-  const scored = rows.map((r, i) => ({ ...r, pred: preds?.[i] })).filter((r) => r.pred && r.driver === sel.driver)
+  const allScored = rows.map((r, i) => ({ ...r, pred: preds?.[i] })).filter((r) => r.pred)
+  const scored = allScored.filter((r) => r.driver === sel.driver)
 
   // Focus on the selected driver's most attack-favourable detected point.
   const [focusLap, setFocusLap] = useState(null)
@@ -326,6 +518,14 @@ export function StrategyTab({ sel, decision, preds, energy }) {
   const socAvail = eLap?.socEndMj ?? null
   const deployHeadroom = socAvail == null ? null : Math.max(0, 4.0 - socAvail)
   const affordable = socAvail == null ? null : socAvail >= 1.0
+  const tree = useMemo(() => buildStrategyTree({
+    focus,
+    rows: allScored,
+    energyLaps: eLaps,
+    totalLaps: dp?.totalLaps ?? 0,
+    holdLaps: dp?.holdLaps ?? 6,
+    finishPositions: dp?.finishPositions,
+  }), [focus, allScored, eLaps, dp?.totalLaps, dp?.holdLaps, dp?.finishPositions])
 
   if (decision.loading) return <div className="lx-loading"><span className="lx-spinner" />BUILDING FUSED DECISION…</div>
   if (!focus) return <p className="lx-empty">No decision points detected for {sel.driver} in this race. Pick another driver or race above.</p>
@@ -396,6 +596,8 @@ export function StrategyTab({ sel, decision, preds, energy }) {
         </p>
       </aside>
     </div>
+
+    <StrategyTreePanel tree={tree} />
 
     <div className="ov-strategy-row">
       <div className="ov-section-label"><span>{sel.driver} DECISION POINTS THIS RACE</span><b>SELECT A LAP TO INSPECT</b></div>

@@ -22,6 +22,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 
 from car_mass import car_mass_kg
+from energy_surrogate import add_surrogate_energy
 from fetch_f1_session import CACHE_DIR
 
 ROOT = pathlib.Path(CACHE_DIR).parent
@@ -30,7 +31,8 @@ MODELS = ROOT / 'models'
 FEATURES = [
     'gapS', 'closingRateS', 'speedDeltaKph', 'tyreAgeDiff', 'lapFraction',
     'position', 'raceMeanSpeedKph', 'attackerCompoundOrd', 'defenderCompoundOrd',
-    'drsEligible', 'attackerMassKg', 'massDeltaKg',
+    'drsEligible', 'attackerMassKg', 'massDeltaKg', 'attackerSoCMj',
+    'defenderSoCMj', 'energyDeltaMj',
 ]
 LABELS = ['SAVE', 'DELAY', 'ATTACK']
 
@@ -68,7 +70,7 @@ def to_frame(records):
         car_mass_kg(y, drv, lf) - car_mass_kg(y, dfd, lf)
         for y, drv, dfd, lf in
         zip(df['year'], df['driver'], df['defender'], df['lapFraction'])]
-    return df
+    return add_surrogate_energy(df)
 
 
 def main():
@@ -76,6 +78,8 @@ def main():
     parser.add_argument('--test-from', type=int, default=2025,
                         help='first year held out as test (strict temporal split)')
     parser.add_argument('--max-train-year', type=int, default=None)
+    parser.add_argument('--n-jobs', type=int, default=1,
+                        help='RandomForest workers; 1 is portable on restricted Windows hosts')
     args = parser.parse_args()
 
     df = to_frame(load_rows())
@@ -98,7 +102,7 @@ def main():
 
     model = RandomForestClassifier(
         n_estimators=400, max_depth=8, min_samples_leaf=20,
-        class_weight='balanced', random_state=7, n_jobs=-1)
+        class_weight='balanced', random_state=7, n_jobs=args.n_jobs)
     model.fit(X_train, y_train)
 
     pred = model.predict(X_test)
@@ -118,7 +122,7 @@ def main():
                                zip(FEATURES, model.feature_importances_)},
         'features': FEATURES,
         'labels': LABELS,
-        'note': 'Outcome labels: ATTACK = pass made and held 6 laps; DELAY = durable pass within 6 laps; SAVE = none. Modelled, not measured.',
+        'note': 'Outcome labels: ATTACK = pass made and held 6 laps; DELAY = durable pass within 6 laps; SAVE = none. SoC features are lap-time battle surrogates, modelled rather than measured.',
     }
 
     MODELS.mkdir(parents=True, exist_ok=True)
