@@ -23,7 +23,9 @@ import pathlib
 
 import fastf1
 import numpy as np
+import pandas as pd
 
+from energy_surrogate import add_surrogate_energy
 from fetch_f1_session import CACHE_DIR
 
 OUT_ROOT = pathlib.Path(CACHE_DIR).parent / 'decision-points'
@@ -154,6 +156,13 @@ def extract_race(year, round_number, session_name='R', max_gap=1.2, hold_laps=6)
     session.load(laps=True, telemetry=True, weather=False, messages=False)
 
     timelines = build_timelines(session)
+    finish_positions = {}
+    for _, result in session.results.iterrows():
+        abbreviation = result.get('Abbreviation')
+        position = num(result.get('Position'))
+        if abbreviation is not None and position is not None:
+            finish_positions[str(abbreviation)] = int(position)
+
     total_laps = session.total_laps or max(
         (max(tl) for tl in timelines.values() if tl), default=0)
     speeds = build_max_speeds(session)
@@ -199,6 +208,8 @@ def extract_race(year, round_number, session_name='R', max_gap=1.2, hold_laps=6)
                 'gapS': round(gap, 3),
                 'closingRateS': round(prev_gap - gap, 3) if prev_gap is not None else None,
                 'speedDeltaKph': round(d_speed - a_speed, 1) if d_speed is not None and a_speed is not None else None,
+                'attackerLapTimeS': row['lapTimeS'],
+                'defenderLapTimeS': d_row.get('lapTimeS'),
                 'tyreAgeDiff': round(row['tyreLife'] - d_row['tyreLife'], 1) if row['tyreLife'] is not None and d_row.get('tyreLife') is not None else None,
                 'attackerCompound': row['compound'],
                 'defenderCompound': d_row.get('compound'),
@@ -210,6 +221,12 @@ def extract_race(year, round_number, session_name='R', max_gap=1.2, hold_laps=6)
                 'held': held,
                 'label': label,
             })
+
+    if rows:
+        row_frame = add_surrogate_energy(pd.DataFrame(rows))
+        # Cast to object first: pandas otherwise keeps NaN in float columns,
+        # which would leak non-standard NaN values into the JSON cache.
+        rows = row_frame.astype(object).where(pd.notna(row_frame), None).to_dict(orient='records')
 
     counts = {}
     for r in rows:
@@ -223,6 +240,7 @@ def extract_race(year, round_number, session_name='R', max_gap=1.2, hold_laps=6)
         'totalLaps': int(total_laps),
         'maxGapThresholdS': max_gap,
         'holdLaps': hold_laps,
+        'finishPositions': finish_positions,
         'raceMeanSpeedKph': round(race_mean_speed, 1) if race_mean_speed else None,
         'labelCounts': counts,
         'rows': rows,
@@ -247,7 +265,7 @@ def main():
     fastf1.Cache.enable_cache(str(CACHE_DIR))
     payload = extract_race(args.year, args.round, args.session, args.max_gap, args.hold_laps)
     out.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(payload)
+    text = json.dumps(payload, allow_nan=False)
     out.write_text(text, encoding='utf-8')
     print(text)
 

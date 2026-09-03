@@ -42,7 +42,7 @@ def _num(value, default=0.0):
 def build_feature_vector(row, features):
     gap = _num(row.get('gapS'))
     vector = {
-        'gapS': gap,
+    'gapS': gap,
         'closingRateS': _num(row.get('closingRateS')),
         'speedDeltaKph': _num(row.get('speedDeltaKph')),
         'tyreAgeDiff': _num(row.get('tyreAgeDiff')),
@@ -53,6 +53,12 @@ def build_feature_vector(row, features):
         'defenderCompoundOrd': COMPOUND_ORDINAL.get(str(row.get('defenderCompound')).upper(), 1.0),
         'drsEligible': 1.0 if gap <= 1.0 else 0.0,
     }
+    # These fields are supplied by the historical extractor after applying the
+    # cheap lap-time SoC surrogate.  Keep the neutral 70% state for older cache
+    # rows so prediction remains backwards compatible during re-extraction.
+    vector['attackerSoCMj'] = _num(row.get('attackerSoCMj'), 2.8)
+    vector['defenderSoCMj'] = _num(row.get('defenderSoCMj'), 2.8)
+    vector['energyDeltaMj'] = _num(row.get('energyDeltaMj'), vector['attackerSoCMj'] - vector['defenderSoCMj'])
     year = int(_num(row.get('year'), 2025))
     frac = _num(row.get('lapFraction'), 0.5)
     attacker_mass = car_mass_kg(year, row.get('driver'), frac)
