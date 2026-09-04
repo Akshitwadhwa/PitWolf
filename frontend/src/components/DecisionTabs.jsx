@@ -409,6 +409,10 @@ export function OvertakeTab({ sel, decision, preds, report }) {
   const dp = decision.data
   if (decision.loading) return <div className="lx-loading"><span className="lx-spinner" />LOADING DECISION POINTS</div>
   if (decision.error) return <p className="lx-empty">No decision points for {sel.year} R{sel.round} {sel.session}. {decision.error}</p>
+  // Switching from Track/Telemetry clears the previous decision payload before
+  // the new request effect runs. Keep the page alive during that one render
+  // instead of dereferencing null and producing a blank React screen.
+  if (!dp) return <div className="lx-loading"><span className="lx-spinner" />LOADING DECISION POINTS</div>
 
   const rows = dp.rows ?? []
   const scored = rows.map((r, i) => ({ ...r, pred: preds?.[i] })).filter((r) => r.pred)
