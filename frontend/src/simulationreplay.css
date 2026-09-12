@@ -60,13 +60,24 @@
 .sim-recs-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;margin:0;padding:6px 2px;border:0;background:transparent;color:inherit;cursor:pointer;text-align:left}
 .sim-recs-toggle b{color:#71867e;font:7px 'DM Mono';letter-spacing:.08em}
 .sim-recs-toggle span{color:#a9beb5;font:7px 'DM Mono';letter-spacing:.1em}
-.sim-field-recs-body{display:grid;gap:3px;padding-top:2px}
+.sim-field-recs-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) minmax(0,.9fr);gap:12px;padding-top:8px;align-items:stretch}
 .sim-field-recs-body i{color:#71867e;font:7px 'DM Mono';font-style:normal;letter-spacing:.08em}
-.sim-field-recs strong{color:#dcece6;font:600 12px/1.35 'Space Grotesk';letter-spacing:-.02em}
-.sim-field-recs em{color:#91a69d;font:8px/1.4 'DM Mono';font-style:normal;letter-spacing:.04em}
+.sim-recs-block{display:grid;gap:6px;align-content:start;min-width:0;padding:8px 10px 10px;border:1px solid rgba(225,255,245,.1);background:rgba(8,12,14,.45)}
+.sim-recs-block i{margin:0;letter-spacing:.1em}
+.sim-recs-block.is-actual{border-color:rgba(156,178,169,.28)}
+.sim-recs-block.is-actual i{color:#9cb2a9}
+.sim-recs-block.is-model{border-color:rgba(169,191,255,.28)}
+.sim-recs-block.is-model i{color:#a9bfff}
+.sim-recs-block.is-output{border-color:rgba(243,200,91,.4);background:rgba(243,200,91,.05)}
+.sim-recs-block.is-output i{color:#f3c85b}
+.sim-recs-call{color:#f3c85b;font:700 18px/.9 'Space Grotesk';letter-spacing:-.04em}
+.sim-field-recs.is-push .sim-recs-block.is-output{border-color:rgba(99,230,190,.4);background:rgba(99,230,190,.05)}
+.sim-field-recs.is-push .sim-recs-block.is-output i,.sim-field-recs.is-push .sim-recs-call{color:#63e6be}
+.sim-field-recs strong{color:#dcece6;font:600 11px/1.4 'Space Grotesk';letter-spacing:-.02em}
+.sim-field-recs em{color:#91a69d;font:8px/1.45 'DM Mono';font-style:normal;letter-spacing:.04em}
 .sim-field-recs.is-push .sim-recs-toggle b{color:#63e6be}
 .sim-field-recs.is-hold .sim-recs-toggle b{color:#f3c85b}
 .sim-field-bar.is-overtake{border-color:rgba(99,230,190,.45)}
 .sim-field-bar.is-slow{border-color:rgba(255,112,67,.45)}
 .sim-field-bar.is-pit{border-color:rgba(169,191,255,.4)}
-@media(max-width:800px){.sim-compare-row{grid-template-columns:1fr}.sim-gap-leaderboard{top:8px}}
+@media(max-width:800px){.sim-compare-row{grid-template-columns:1fr}.sim-gap-leaderboard{top:8px}.sim-field-recs-body{grid-template-columns:1fr}}

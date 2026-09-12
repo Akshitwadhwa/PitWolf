@@ -377,6 +377,37 @@ function modelledPct(step, progress = 1) {
   return trough + (end - trough) * ((fraction - 0.45) / 0.55)
 }
 
+function recLineKind(line) {
+  if (/^Do not push\b/.test(line) || /^IF the gap stays this small: PUSH/.test(line) || /^IF .+ starts to lose time/.test(line)) {
+    return 'output'
+  }
+  if (
+    line.startsWith('MODELLED ES')
+    || /\bRandomForest\b/.test(line)
+    || /DRS efficiency/.test(line)
+    || /Historical (efficiency|net-gain)/.test(line)
+    || /training races/.test(line)
+    || /from prior races/.test(line)
+    || /Modelled wait/.test(line)
+    || /Not in DRS yet/.test(line)
+  ) {
+    return 'model'
+  }
+  return 'actual'
+}
+
+function RecsBlock({ kicker, tone, call, children }) {
+  const items = React.Children.toArray(children).filter(Boolean)
+  if (!items.length && !call) return null
+  return (
+    <div className={`sim-recs-block is-${tone}`}>
+      <i>{kicker}</i>
+      {call ? <b className="sim-recs-call">{call}</b> : null}
+      {items}
+    </div>
+  )
+}
+
 function nowcastLines({ selected, benchmark, selectedRow, benchRow, selectedStep, aheadStep, behindStep, benchStep, progress }) {
   const lines = []
   if (aheadStep && selectedStep?.ahead) {
@@ -487,6 +518,10 @@ function RaceFieldHud({ field, driver, playbackLap, playhead, loading, error, ev
   })
   const modelLines = recommend.data?.lines ?? []
   const holdout = recommend.data?.holdout
+  const allRecLines = [...observed, ...modelLines]
+  const actualLines = allRecLines.filter((line) => recLineKind(line) === 'actual')
+  const forestLines = allRecLines.filter((line) => recLineKind(line) === 'model')
+  const outputLines = allRecLines.filter((line) => recLineKind(line) === 'output')
   const visibleTicks = (selectedRow.laps ?? []).filter((step) => Number(step.lap) <= Number(selectedStep.lap))
   const tone = recommend.data?.action === 'PUSH' ? 'is-overtake' : selectedStep.event === 'SLOW' ? 'is-slow' : selectedStep.event === 'PIT' ? 'is-pit' : ''
   return <aside className={`sim-field-bar is-compare ${tone}`} aria-label="Driver comparison field">
@@ -516,12 +551,18 @@ function RaceFieldHud({ field, driver, playbackLap, playhead, loading, error, ev
         <span>{recsOpen ? 'HIDE ▴' : 'SHOW ▾'}</span>
       </button>
       {recsOpen && <div id="sim-field-recs-body" className="sim-field-recs-body">
-        <i>NOT THIS GP’S FUTURE</i>
-        {observed.map((line) => <strong key={line}>{line}</strong>)}
-        {recommend.loading && <strong>Scoring push / recover from trained prior races…</strong>}
-        {recommend.error && <strong>Recommendation unavailable: {recommend.error}</strong>}
-        {modelLines.map((line) => <strong key={line}>{line}</strong>)}
-        {holdout?.racesTest ? <em>Holdout: {holdout.racesTrain} train / {holdout.racesTest} random test races · push AUC {holdout.targets?.pushHelps?.testAuc ?? '—'} · recover AUC {holdout.targets?.recoverIfLost?.testAuc ?? '—'}</em> : null}
+        <RecsBlock kicker="ACTUAL · THIS LAP" tone="actual">
+          {actualLines.map((line) => <strong key={line}>{line}</strong>)}
+        </RecsBlock>
+        <RecsBlock kicker="MODEL · 2018–2025 FORESTS · NOT THIS GP’S LATER LAPS" tone="model">
+          {recommend.loading && <strong>Scoring push / recover from trained prior races…</strong>}
+          {forestLines.map((line) => <strong key={line}>{line}</strong>)}
+          {holdout?.racesTest ? <em>Holdout: {holdout.racesTrain} train / {holdout.racesTest} random test races · push AUC {holdout.targets?.pushHelps?.testAuc ?? '—'} · recover AUC {holdout.targets?.recoverIfLost?.testAuc ?? '—'}</em> : null}
+        </RecsBlock>
+        <RecsBlock kicker="OUTPUT · WHAT THIS PANEL IS FOR" tone="output" call={recommend.data?.action || null}>
+          {recommend.error && <strong>Recommendation unavailable: {recommend.error}</strong>}
+          {outputLines.map((line) => <strong key={line}>{line}</strong>)}
+        </RecsBlock>
       </div>}
     </div>
   </aside>
