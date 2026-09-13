@@ -412,7 +412,7 @@ def habit_move(driver: str, soc: float, focus: dict[str, Any], defending: bool,
         "deployScale": deploy_scale,
         "harvestScale": harvest_scale,
         "clipReason": legal.get("clipReason"),
-        "zone": "OVERTAKE_WINDOW" if hunt else ("BATTLE" if in_battle else "OPEN"),
+        "zone": "OVERTAKE_MODE_ZONE" if hunt else ("BATTLE" if in_battle else "OPEN"),
         "harvestLaw": law,
     }
 
@@ -505,11 +505,25 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
     takes: list[dict[str, Any]] = []
     last_action = None
 
-    forced = payload.get("forcedFirstAction") or payload.get("forcedAction")
-    if forced == "HOLD":
+    forced_label = payload.get("forcedFirstAction") or payload.get("forcedAction")
+    forced = forced_label
+    if forced == "DEFEND":
+        # DEFEND is the leader-facing label for an energy-spending cover lap.
+        # The battery transition uses ATTACK with defending=True.
+        forced = "ATTACK"
+    elif forced == "HOLD":
         forced = "DELAY"
     if forced not in ACTIONS:
         forced = None
+
+    forced_opponent_label = payload.get("forcedOpponentAction")
+    forced_opponent = forced_opponent_label
+    if forced_opponent == "DEFEND":
+        forced_opponent = "ATTACK"
+    elif forced_opponent == "HOLD":
+        forced_opponent = "DELAY"
+    if forced_opponent not in ACTIONS:
+        forced_opponent = None
 
     try:
         from driver_energy_habits import personality_card
@@ -557,6 +571,9 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
         if opp_pit:
             opp_force = "SAVE"
             opp_allow_attack = False
+        elif first_lap and forced_opponent:
+            opp_force = forced_opponent
+            opp_allow_attack = forced_opponent == "ATTACK"
         elif state["ahead"]:
             # They just lost the place, or they are the car that passed us in
             # the real race. They keep attacking. We only try to delay it.
@@ -638,6 +655,8 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
             "opponentHarvestMj", "opponentResponseScore",
             "habitProbabilities", "opponentHabitProbabilities")}
         entry.update({
+            "decisionLabel": forced_label if (first_lap and forced_label and forced) else chosen["action"],
+            "opponentDecisionLabel": forced_opponent_label if (first_lap and forced_opponent_label and forced_opponent) else chosen["opponentAction"],
             "lap": state["lap"],
             "role": "DEFENDING" if state["ahead"] else "ATTACKING",
             "ahead": next_ahead,
@@ -649,9 +668,9 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
             "goLap": go_lap,
             "planned": bool(go_lap is not None and state["lap"] == go_lap),
             "contextSource": "REAL_PIT" if (our_pit or opp_pit) else (
-                "FORCED_WHAT_IF_FIRST_LAP" if (first_lap and forced) else "MODEL_BRANCH"
+                "FORCED_TWO_CAR_FIRST_LAP" if (first_lap and (forced or forced_opponent)) else "MODEL_BRANCH"
             ),
-            "forced": bool(first_lap and forced),
+            "forced": bool(first_lap and (forced or forced_opponent)),
             "ourPit": our_pit,
             "opponentPit": opp_pit,
             "pitPlan": "REAL RACE PITS ONLY",
@@ -713,6 +732,80 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
     major_success = bool(place_gain)
     places = sum(1 for item in takes if item.get("kind") == "TAKE") - sum(1 for item in takes if item.get("kind") == "LOST_PLACE")
     branch_finish = None if start_position >= 99 else max(1, min(20, start_position - places))
+    pass_steps = [step for step in path if step.get("event") in {"TAKE", "LOST_PLACE"}]
+    first_pass = pass_steps[0] if pass_steps else None
+    first_attack = None
+    first_attacker = None
+    for step in path:
+        if step.get("role") == "ATTACKING" and step.get("action") == "ATTACK":
+            first_attack = step
+            first_attacker = selected
+            break
+        if step.get("role") == "DEFENDING" and step.get("opponentAction") == "ATTACK":
+            first_attack = step
+            first_attacker = opponent
+            break
+    cumulative_pass_probability = 0.0
+    forecast_pass_by_lap = None
+    if first_attack and first_attacker:
+        no_pass_yet = 1.0
+        for step in path:
+            step_attacker = None
+            if step.get("role") == "ATTACKING" and step.get("action") == "ATTACK":
+                step_attacker = selected
+            elif step.get("role") == "DEFENDING" and step.get("opponentAction") == "ATTACK":
+                step_attacker = opponent
+            if step_attacker != first_attacker:
+                continue
+            chance = max(0.0, min(1.0, number(step.get("convertP"), 0.0)))
+            if chance <= 0.0:
+                continue
+            no_pass_yet *= 1.0 - chance
+            cumulative_pass_probability = 1.0 - no_pass_yet
+            forecast_pass_by_lap = step.get("lap")
+            if cumulative_pass_probability >= 0.5:
+                break
+    if first_pass:
+        pass_driver = selected if first_pass.get("event") == "TAKE" else opponent
+        passed_driver = opponent if pass_driver == selected else selected
+        pass_forecast = {
+            "status": "PASS_COMPLETED",
+            "projectedPassLap": first_pass.get("lap"),
+            "attemptLap": first_pass.get("lap"),
+            "attacker": pass_driver,
+            "defender": passed_driver,
+            "conversionProbability": first_pass.get("convertP"),
+            "cumulativePassProbability": round(cumulative_pass_probability, 4),
+            "forecastPassByLap": forecast_pass_by_lap or first_pass.get("lap"),
+            "event": first_pass.get("event"),
+            "message": f"Modelled pass: {pass_driver} passes {passed_driver} on lap {first_pass.get('lap')}.",
+        }
+    elif first_attack:
+        pass_forecast = {
+            "status": "NO_PASS_BY_FLAG",
+            "projectedPassLap": None,
+            "attemptLap": first_attack.get("lap"),
+            "attacker": first_attacker,
+            "defender": opponent if first_attacker == selected else selected,
+            "conversionProbability": first_attack.get("convertP"),
+            "cumulativePassProbability": round(cumulative_pass_probability, 4),
+            "forecastPassByLap": forecast_pass_by_lap or first_attack.get("lap"),
+            "event": None,
+            "message": f"{first_attacker} has a {round(cumulative_pass_probability * 100)}% modelled chance to pass by lap {forecast_pass_by_lap or first_attack.get('lap')}; this seeded replay branch does not convert a pass.",
+        }
+    else:
+        pass_forecast = {
+            "status": "NO_ATTACK_OPPORTUNITY",
+            "projectedPassLap": None,
+            "attemptLap": None,
+            "attacker": None,
+            "defender": None,
+            "conversionProbability": None,
+            "cumulativePassProbability": 0.0,
+            "forecastPassByLap": None,
+            "event": None,
+            "message": "No modelled attack opportunity remains before the flag.",
+        }
     root_context = context(focus)
     rule_context = payload.get("ruleContext") if isinstance(payload.get("ruleContext"), dict) else {}
     rule_application = (
@@ -724,7 +817,9 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
         "schemaVersion": "race-branch.v2",
         "treeVersion": "model-race-branch.v2",
         "mode": "MODEL_RACE_BRANCH",
-        "forcedFirstAction": forced,
+        "forcedFirstAction": forced_label if forced else None,
+        "forcedOpponentAction": forced_opponent_label if forced_opponent else None,
+        "battlePlan": payload.get("battlePlan") if isinstance(payload.get("battlePlan"), dict) else None,
         "whatIf": payload.get("whatIf") if isinstance(payload.get("whatIf"), dict) else None,
         "tree": {
             "lap": start_lap,
@@ -744,6 +839,7 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
         "takes": takes,
         "goLap": go_lap,
         "plannedConvertP": planned_convert,
+        "passForecast": pass_forecast,
         "habitProbabilities": (path[0].get("habitProbabilities") if path else None),
         "energyPersonality": our_personality,
         "opponentEnergyPersonality": opp_personality,
@@ -809,7 +905,7 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
             "source": energy_config["source"],
         },
         "assumptions": [
-            "From JUMP the model owns the selected driver's ATTACK/SAVE/DELAY and whether a pass lands.",
+            "From JUMP the model owns both cars' first-lap tactical choices and whether a pass lands.",
             "The only later recorded fact used is pit in/out laps for this pair.",
             "Energy personality is 2026 modelled deploy in battle vs open air, this GP stripped. Not team battery.",
             "u is that driver's 2018–2026 place-take rate, excluding this GP.",

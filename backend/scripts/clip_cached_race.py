@@ -38,7 +38,7 @@ def energy_zone_for(step: dict) -> str:
     except (TypeError, ValueError):
         hunt = False
     if hunt:
-        return 'OVERTAKE_WINDOW'
+        return 'OVERTAKE_MODE_ZONE'
     try:
         fight = min(
             9.0 if gap_ahead is None else float(gap_ahead),

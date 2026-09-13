@@ -166,7 +166,7 @@ def in_battle(step: dict) -> bool:
 
 def sample_mode(step: dict) -> str:
     zone = str(step.get('energyZone') or (step.get('modelled') or {}).get('zone') or '')
-    if zone == 'OVERTAKE_WINDOW':
+    if zone in {'OVERTAKE_WINDOW', 'OVERTAKE_MODE_ZONE'}:
         return 'overtake'
     if zone == 'BATTLE' or in_battle(step):
         return 'battle'

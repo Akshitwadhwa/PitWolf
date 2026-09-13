@@ -337,7 +337,7 @@ def best_go_hint(driver: str, leftover_pct: float, gap_s: float, zone: str, year
     card = personality_card(driver, year, location)
     left = _num(leftover_pct, 70.0)
     gap = _num(gap_s, 9.0)
-    hunt = zone == 'OVERTAKE_WINDOW' or gap <= 1.0
+    hunt = zone in {'OVERTAKE_WINDOW', 'OVERTAKE_MODE_ZONE'} or gap <= 1.0
     hunt_rate = _num((card.get('overtake') or card.get('battle') or {}).get('attackRate'), 0.35)
     if left < 22:
         return {
@@ -348,23 +348,23 @@ def best_go_hint(driver: str, leftover_pct: float, gap_s: float, zone: str, year
     if hunt and left >= 40 and hunt_rate >= 0.28:
         return {
             'call': 'GO',
-            'place': 'OVERTAKE WINDOW',
-            'note': f'This 1.0s window is the better place to spend. {driver} dumps on {round(hunt_rate * 100)}% of hunt laps and has {left:.0f}% left.',
+            'place': 'OVERTAKE MODE ZONE',
+            'note': f'This 1.0s zone is the better place to spend. {driver} dumps on {round(hunt_rate * 100)}% of hunt laps and has {left:.0f}% left.',
         }
     if hunt and left >= 28:
         return {
-            'call': 'HOLD WINDOW',
-            'place': 'OVERTAKE WINDOW',
-            'note': f'{driver} is inside 1.0s with {left:.0f}% left. Wait one more lap in this window unless they are already closing.',
+            'call': 'HOLD POSITION',
+            'place': 'OVERTAKE MODE ZONE',
+            'note': f'{driver} is inside 1.0s with {left:.0f}% left. Hold position unless they are already closing.',
         }
     if zone == 'BATTLE':
         return {
             'call': 'COVER',
             'place': 'BATTLE',
-            'note': f'{driver} is in a fight with {left:.0f}% left. Cover first; the overtake window is the car ahead inside 1.0s.',
+            'note': f'{driver} is in a fight with {left:.0f}% left. Cover first; the overtake-mode zone is the car ahead inside 1.0s.',
         }
     return {
         'call': 'REBUILD',
         'place': 'OPEN',
-        'note': f'{driver} is in open air with {left:.0f}% left. Rebuild until the next 1.0s overtake window.',
+        'note': f'{driver} is in open air with {left:.0f}% left. Rebuild until the next 1.0s overtake-mode zone.',
     }
