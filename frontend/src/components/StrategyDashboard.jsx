@@ -15,9 +15,11 @@ import {
   DEFAULT_START_RESERVE_PCT,
 } from '../lib/energyModel'
 import { recommend, feasibilityScore, STRATEGIES, DECISION_ENGINE_VERSION } from '../lib/decisionEngine'
-import { RaceSelector, useRaceEngine, StrategyTab, EnergyTab, OvertakeTab, ValidationTab, TelemetryIncidentBoard } from './DecisionTabs'
+import { RaceSelector, useRaceEngine, StrategyTab, EnergyTab, OvertakeTab, TelemetryIncidentBoard } from './DecisionTabs'
+import { DiffResultPage } from './DiffResultPage'
+import { ModelsResultPage } from './ModelsResultPage'
 
-const tabs = ['TRACK', 'TELEMETRY', 'TEAM LAP', 'OPTIMAL LAP', 'STRATEGY', 'ENERGY', 'OVERTAKE', 'VALIDATION']
+const tabs = ['TRACK', 'TELEMETRY', 'TEAM LAP', 'OPTIMAL LAP', 'STRATEGY', 'ENERGY', 'OVERTAKE', 'DIFF RESULT', 'MODELS RESULT']
 
 const { meta, attacker, defender, distance_m: distance, derived } = scenario
 const atk = scenario.attacker_telemetry
@@ -350,7 +352,13 @@ export function StrategyDashboard({ onHome, onOpenSimulation }) {
         <OvertakeTab sel={raceSel} decision={engine.decision} preds={engine.preds} />
       )}
 
-      {tab === 'VALIDATION' && <ValidationTab report={engine.report} />}
+      {tab === 'DIFF RESULT' && (
+        <DiffResultPage onOpenSimulation={onOpenSimulation} />
+      )}
+
+      {tab === 'MODELS RESULT' && (
+        <ModelsResultPage onOpenSimulation={onOpenSimulation} />
+      )}
 
     </section>
 

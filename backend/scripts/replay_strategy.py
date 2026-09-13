@@ -20,9 +20,11 @@ import sys
 from typing import Any
 
 try:
+    from battery_overtake import driver_score, modulate_overtake, seeded_draw
     from energy_transition import (CAPACITY_MJ, ENERGY_MODEL_VERSION,
                                    era_for_year, get_era_config, transition_soc)
 except ImportError:  # allow package-style unit tests as well as direct scripts
+    from .battery_overtake import driver_score, modulate_overtake, seeded_draw
     from .energy_transition import (CAPACITY_MJ, ENERGY_MODEL_VERSION,
                                     era_for_year, get_era_config, transition_soc)
 
@@ -35,6 +37,118 @@ ACTIONS = ("ATTACK", "SAVE", "DELAY")
 MIN_ATTACK_SOC_MJ = 0.25
 MIN_DELAY_SOC_MJ = 0.08
 RESERVE_WEIGHT = 25.0
+_RECOMMEND_ARTIFACT = None
+
+
+def _recommend_artifact():
+    global _RECOMMEND_ARTIFACT
+    if _RECOMMEND_ARTIFACT is not None:
+        return _RECOMMEND_ARTIFACT
+    try:
+        import joblib
+        from score_recommend import MODELS
+        if MODELS.exists():
+            _RECOMMEND_ARTIFACT = joblib.load(MODELS)
+    except Exception:
+        _RECOMMEND_ARTIFACT = {}
+    return _RECOMMEND_ARTIFACT or {}
+
+
+def overtake_rate_u(driver: str, year, location: str) -> float:
+    """0–1 take-rate aggressiveness from 2018–2026, excluding this GP."""
+    try:
+        from driver_energy_habits import aggression_u
+        rate = aggression_u(driver, year, location)
+        if rate is not None:
+            return rate
+    except Exception:
+        pass
+    try:
+        from score_recommend import exclude_current_race
+    except ImportError:
+        from .score_recommend import exclude_current_race
+    artifact = _recommend_artifact()
+    priors = artifact.get('priors') or {}
+    global_rates = artifact.get('global') or {}
+    prior = exclude_current_race((priors.get('drivers') or {}).get(driver) or {}, year, location)
+    rate = prior.get('overtakeSoonRate')
+    if rate is None:
+        rate = global_rates.get('overtakeSoonRate', 0.15)
+    return max(0.05, min(0.85, float(rate)))
+
+
+def pit_laps_from_session(year, round_number, session_name, drivers: list[str]) -> dict[str, set[int]]:
+    """The only later-race fact the branch may read: who boxed, which lap."""
+    pits = {code: set() for code in drivers if code}
+    try:
+        from clip_cached_race import load_session, session_path
+    except ImportError:
+        from .clip_cached_race import load_session, session_path
+    path = session_path(int(year), int(round_number), session_name or 'Race')
+    if not path.exists():
+        return pits
+    payload = load_session(path)
+    wanted = set(pits)
+    for lap in payload.get('laps') or []:
+        code = lap.get('driver')
+        if code not in wanted or not lap.get('isPitLap'):
+            continue
+        number_lap = int(number(lap.get('lapNumber'), 0))
+        if number_lap > 0:
+            pits[code].add(number_lap)
+    return pits
+
+
+def observed_pair_ahead_laps(year, round_number, session_name, selected: str,
+                             opponent: str, start_lap: int, finish_lap: int) -> dict[str, int] | None:
+    """How many recorded laps the selected car was ahead of this opponent."""
+    try:
+        from clip_cached_race import build_field_story, load_session, session_path
+    except ImportError:
+        from .clip_cached_race import build_field_story, load_session, session_path
+    path = session_path(int(year), int(round_number), session_name or 'Race')
+    if not path.exists():
+        return None
+    try:
+        field = build_field_story(load_session(path))
+    except Exception:
+        return None
+    by_code = {
+        item.get('driver'): {int(number(step.get('lap'), 0)): step for step in (item.get('laps') or [])}
+        for item in (field.get('drivers') or [])
+        if item.get('driver')
+    }
+    ours = by_code.get(selected) or {}
+    theirs = by_code.get(opponent) or {}
+    ahead_laps = 0
+    compared = 0
+    for lap in range(int(start_lap), int(finish_lap) + 1):
+        us = ours.get(lap)
+        them = theirs.get(lap)
+        if not us or not them:
+            continue
+        our_pos = number(us.get('timingPosition'), 99)
+        their_pos = number(them.get('timingPosition'), 99)
+        if our_pos >= 99 or their_pos >= 99:
+            continue
+        compared += 1
+        if our_pos < their_pos:
+            ahead_laps += 1
+    if not compared:
+        return None
+    return {'aheadLaps': ahead_laps, 'comparedLaps': compared}
+
+
+def session_location(year, round_number, session_name) -> str:
+    try:
+        from clip_cached_race import load_session, session_path
+    except ImportError:
+        from .clip_cached_race import load_session, session_path
+    path = session_path(int(year), int(round_number), session_name or 'Race')
+    if not path.exists():
+        return ''
+    event = (load_session(path).get('event') or {})
+    return str(event.get('location') or '')
 
 def number(value: Any, default: float = 0.0) -> float:
     try:
@@ -166,7 +280,7 @@ def observed_pit_tyre_context(rows: list[dict[str, Any]], focus: dict[str, Any],
 
 
 def attack_chance(row: dict[str, Any] | None, action: str, our_soc: float,
-                  opponent_soc: float, defending: bool) -> float:
+                  opponent_soc: float, defending: bool, u: float | None = None) -> float:
     """Estimate the chance that the attacking side changes position this lap."""
     values = context(row)
     # A yellow/SC/VSC/red-flag or pit-cycle state is not a normal overtake
@@ -223,7 +337,11 @@ def attack_chance(row: dict[str, Any] | None, action: str, our_soc: float,
         if our_soc < MIN_DELAY_SOC_MJ:
             return 0.0
         raw *= 0.35 + (0.65 * energy_factor)
-    return max(0.01, min(0.97, raw * action_factor))
+    base = max(0.01, min(0.97, raw * action_factor))
+    hunter = row.get("driver") if not defending else row.get("defender")
+    if u is None:
+        u = driver_score(row.get("year"), row.get("round"), row.get("lap"), hunter)
+    return modulate_overtake(base, our_soc, opponent_soc, u)["overtakeP"]
 
 
 def best_response(row: dict[str, Any] | None, opponent_soc: float, our_soc: float,
@@ -243,33 +361,148 @@ def best_response(row: dict[str, Any] | None, opponent_soc: float, our_soc: floa
     return selected, round(scores[selected], 4)
 
 
-def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
-    """Run a future-blind, two-car policy rollout from one recorded snapshot.
+def leftover_pct(soc: float) -> float:
+    return round(100.0 * clamp(soc) / CAPACITY_MJ, 2)
 
-    This deliberately does *not* receive later decision rows.  The classifier
-    signal and public context at the chosen lap are carried forward while both
-    cars' modelled SoC and their probability of pair-order reversal evolve.
-    It is therefore a race-to-flag energy/overtake policy experiment, not a
-    reconstructed full-grid race or a claim about private team strategy.
+
+def habit_move(driver: str, soc: float, focus: dict[str, Any], defending: bool,
+               in_battle: bool, era: str, year, location: str,
+               force: str | None = None, allow_attack: bool = True,
+               use_model: bool = True) -> dict[str, Any]:
+    try:
+        from c52_battery import apply_legal_lap
+        from driver_energy_habits import energy_scales, pick_action
+    except ImportError:
+        from .c52_battery import apply_legal_lap
+        from .driver_energy_habits import energy_scales, pick_action
+    hunt = in_battle and number(focus.get("gapS"), 9.0) <= 1.0 and not defending
+    left = leftover_pct(soc)
+    law = focus.get("harvestLaw") if isinstance(focus.get("harvestLaw"), dict) else {}
+    deploy_scale, harvest_scale = energy_scales(
+        driver, in_battle, year, location, in_overtake=hunt, leftover_pct=left,
+    )
+    action, proba = pick_action(
+        driver, in_battle, left,
+        number(focus.get("gapS"), 1.2), number(focus.get("closingRateS")),
+        year, location, allow_attack=allow_attack, leftover_mj=soc,
+        use_model=use_model, in_overtake=hunt,
+        lap_fraction=number(focus.get("lapFraction"), 0.5),
+        track_brakes=number(law.get("brakes") or focus.get("trackBrakes"), 10.0),
+    )
+    if force in ACTIONS:
+        action = force
+    legal = apply_legal_lap(
+        soc, action, {
+            **dict(focus or {}),
+            "year": year,
+            "round": focus.get("round"),
+            "session": focus.get("session") or "Race",
+        }, defending=defending, era=era,
+        overtake_active=hunt or (not defending and force == "ATTACK"),
+        harvest_used_mj=0.0,
+        deploy_scale=deploy_scale, harvest_scale=harvest_scale,
+    )
+    law = legal.get("harvestLaw") or {}
+    return {
+        "action": action,
+        "soc": legal["socEndMj"],
+        "deploy": legal["consumedMj"],
+        "harvest": legal["harvestedMj"],
+        "proba": proba,
+        "deployScale": deploy_scale,
+        "harvestScale": harvest_scale,
+        "clipReason": legal.get("clipReason"),
+        "zone": "OVERTAKE_WINDOW" if hunt else ("BATTLE" if in_battle else "OPEN"),
+        "harvestLaw": law,
+    }
+
+
+def plan_go_lap(selected: str, opponent: str, start_lap: int, total_laps: int,
+                start_our: float, start_opp: float, initial_ahead: bool,
+                focus: dict[str, Any], era: str, year, location: str,
+                pits: dict[str, set[int]], our_u: float, forced: str | None) -> tuple[int | None, float]:
+    """One forward pass: score ATTACK at each racing lap, then rebuild to the next."""
+    if initial_ahead:
+        return None, 0.0
+    our_soc, opp_soc = start_our, start_opp
+    scores: list[tuple[int, float]] = []
+    for lap in range(start_lap, total_laps + 1):
+        our_pit = lap in pits.get(selected, set())
+        opp_pit = lap in pits.get(opponent, set())
+        first_force = forced if lap == start_lap else None
+        if not our_pit and not opp_pit and not (lap == start_lap and forced and forced != "ATTACK"):
+            attack = habit_move(
+                selected, our_soc, focus, False, True, era, year, location, force="ATTACK")
+            opp_now = habit_move(
+                opponent, opp_soc, focus, True, True, era, year, location,
+                force="SAVE" if opp_pit else None,
+            )
+            overtake_p = attack_chance(focus, "ATTACK", attack["soc"], opp_now["soc"], False, u=our_u)
+            scores.append((lap, overtake_p * (0.35 + 0.65 * our_u)))
+        rebuild = habit_move(
+            selected, our_soc, focus, False, True, era, year, location,
+            force="SAVE" if our_pit else first_force,
+            allow_attack=first_force == "ATTACK",
+        )
+        opp_move = habit_move(
+            opponent, opp_soc, focus, True, True, era, year, location,
+            force="SAVE" if opp_pit else None,
+        )
+        our_soc, opp_soc = rebuild["soc"], opp_move["soc"]
+    if not scores:
+        return None, 0.0
+    best = max(item[1] for item in scores)
+    go_lap = next(lap for lap, score in scores if score >= 0.95 * best)
+    return go_lap, round(best, 4)
+
+
+def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
+    """Model-owned race branch from JUMP.
+
+    After the freeze-frame the selected driver is simulated. The only later
+    fact taken from the recorded race is who boxed, and on which lap.
+    Energy actions come from each driver's 2026 battle/open habit. Overtakes
+    are discrete: ATTACK plus a seeded draw against overtakeP × u, where u
+    is that driver's 2018–2026 take rate (not this GP).
     """
-    focus = payload.get("focus") or {}
+    focus = dict(payload.get("focus") or {})
     selected = str(focus.get("driver") or "")
     opponent = str(focus.get("defender") or "")
     start_lap = int(number(focus.get("lap"), 1))
     total_laps = max(start_lap, int(number(payload.get("totalLaps"), start_lap)))
-    regulation_era = str(payload.get("regulationEra") or era_for_year(payload.get("year")))
+    year = payload.get("year") or focus.get("year")
+    round_number = payload.get("round") or focus.get("round")
+    session_name = payload.get("session") or focus.get("session") or "Race"
+    focus.update({
+        "year": year,
+        "round": round_number,
+        "session": session_name,
+    })
+    location = str(payload.get("location") or session_location(year, round_number, session_name))
+    regulation_era = str(payload.get("regulationEra") or era_for_year(year))
     energy_config = get_era_config(regulation_era)
     energy_laps = payload.get("energyLaps", {})
+    raw_pits = payload.get("pitLaps")
+    if isinstance(raw_pits, dict):
+        pits = {
+            selected: set(raw_pits.get(selected) or []),
+            opponent: set(raw_pits.get(opponent) or []),
+        }
+    else:
+        pits = pit_laps_from_session(year, round_number, session_name, [selected, opponent])
+    our_u = overtake_rate_u(selected, year, location)
+    opp_u = overtake_rate_u(opponent, year, location)
     state = {
         "lap": start_lap,
         "ahead": number(focus.get("position"), 99) < number(focus.get("defenderPosition"), 99),
-        "aheadProbability": 1.0 if number(focus.get("position"), 99) < number(focus.get("defenderPosition"), 99) else 0.0,
         "ourSoc": soc_from_laps(energy_laps, selected, start_lap),
         "defenderSoc": soc_from_laps(energy_laps, opponent, start_lap),
     }
     initial_ahead = state["ahead"]
+    start_position = int(number(focus.get("position"), 99))
     path: list[dict[str, Any]] = []
     action_changes: list[dict[str, Any]] = []
+    takes: list[dict[str, Any]] = []
     last_action = None
 
     forced = payload.get("forcedFirstAction") or payload.get("forcedAction")
@@ -278,73 +511,183 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
     if forced not in ACTIONS:
         forced = None
 
+    try:
+        from driver_energy_habits import personality_card
+    except ImportError:
+        from .driver_energy_habits import personality_card
+    our_personality = personality_card(selected, year, location)
+    opp_personality = personality_card(opponent, year, location)
+    go_lap, planned_convert = plan_go_lap(
+        selected, opponent, start_lap, total_laps,
+        state["ourSoc"], state["defenderSoc"], initial_ahead,
+        focus, regulation_era, year, location, pits, our_u, forced,
+    )
+    start_our_soc = state["ourSoc"]
+    retried_go = False
+
     while state["lap"] <= total_laps:
-        candidates = []
-        for action in ACTIONS:
-            our_soc, deploy, harvest = transition_soc(
-                state["ourSoc"], action, focus, state["ahead"], era=regulation_era)
-            opponent_action, response_score = best_response(
-                focus, state["defenderSoc"], state["ourSoc"], state["ahead"], regulation_era)
-            opponent_soc, opponent_deploy, opponent_harvest = transition_soc(
-                state["defenderSoc"], opponent_action, focus, not state["ahead"], era=regulation_era)
-            if state["ahead"]:
-                repass = attack_chance(focus, opponent_action, opponent_soc, our_soc, True)
-                next_ahead = state["aheadProbability"] * max(0.02, min(0.99, 1.0 - repass))
-                event_probability = 1.0 - repass
-            else:
-                pass_probability = attack_chance(focus, action, our_soc, opponent_soc, False)
-                next_ahead = state["aheadProbability"] + ((1.0 - state["aheadProbability"]) * pass_probability)
-                event_probability = pass_probability
-            # This policy score selects the action using only the current
-            # carried state.  It has no access to a future lap, result, pit
-            # event, race-control event, or future public timing row.
-            utility = (100.0 * next_ahead) + (RESERVE_WEIGHT * our_soc) + (4.0 * event_probability)
-            candidates.append({
-                "action": action,
-                "probability": round(event_probability, 4),
-                "aheadProbability": round(next_ahead, 4),
-                "ourSoc": round(our_soc, 3),
-                "defenderSoc": round(opponent_soc, 3),
-                "deployMj": deploy,
-                "harvestMj": harvest,
-                "opponentAction": opponent_action,
-                "opponentDeployMj": opponent_deploy,
-                "opponentHarvestMj": opponent_harvest,
-                "opponentResponseScore": response_score,
-                "utility": utility,
-            })
-        if not path and forced:
-            chosen = next((candidate for candidate in candidates if candidate["action"] == forced), None)
-            if chosen is None:
-                chosen = max(candidates, key=lambda candidate: candidate["utility"])
+        our_pit = state["lap"] in pits.get(selected, set())
+        opp_pit = state["lap"] in pits.get(opponent, set())
+        first_lap = not path
+        in_battle = True
+        if our_pit:
+            our_force = "SAVE"
+            allow_attack = False
+        elif first_lap and forced:
+            our_force = forced
+            allow_attack = forced == "ATTACK"
+        elif state["ahead"]:
+            # We have the place. SAVE covers and rebuilds — DELAY still dumps
+            # leftover and then nobody can attack, so the lead freezes.
+            our_force = "SAVE"
+            allow_attack = False
+        elif go_lap is not None and state["lap"] < go_lap:
+            our_force = None
+            allow_attack = False
+        elif go_lap is not None and state["lap"] == go_lap:
+            our_force = "ATTACK"
+            allow_attack = True
+        elif (not retried_go) and state["ourSoc"] >= (start_our_soc * 0.95) and not our_pit and not opp_pit:
+            our_force = "ATTACK"
+            allow_attack = True
+            retried_go = True
         else:
-            chosen = max(candidates, key=lambda candidate: candidate["utility"])
+            our_force = None
+            allow_attack = False
+        if opp_pit:
+            opp_force = "SAVE"
+            opp_allow_attack = False
+        elif state["ahead"]:
+            # They just lost the place, or they are the car that passed us in
+            # the real race. They keep attacking. We only try to delay it.
+            opp_force = "ATTACK" if state["defenderSoc"] >= MIN_ATTACK_SOC_MJ else "SAVE"
+            opp_allow_attack = opp_force == "ATTACK"
+        else:
+            opp_force = None
+            opp_allow_attack = False
+        our_move = habit_move(
+            selected, state["ourSoc"], focus, state["ahead"], in_battle,
+            regulation_era, year, location, force=our_force, allow_attack=allow_attack,
+        )
+        opp_move = habit_move(
+            opponent, state["defenderSoc"], focus, not state["ahead"], in_battle,
+            regulation_era, year, location,
+            force=opp_force, allow_attack=opp_allow_attack,
+        )
+        hunter = selected if not state["ahead"] else opponent
+        hunter_u = our_u if hunter == selected else opp_u
+        hunter_soc = our_move["soc"] if hunter == selected else opp_move["soc"]
+        other_soc = opp_move["soc"] if hunter == selected else our_move["soc"]
+        hunter_action = our_move["action"] if hunter == selected else opp_move["action"]
+        overtake_p = attack_chance(
+            focus, hunter_action, hunter_soc, other_soc, False, u=hunter_u)
+        if state["ahead"]:
+            event_probability = 1.0 - overtake_p
+        else:
+            event_probability = overtake_p
+        convert_p = overtake_p * (0.35 + 0.65 * hunter_u)
+        draw = seeded_draw(year, round_number, state["lap"], hunter)
+        took = False
+        if our_pit or opp_pit:
+            event = "PIT"
+        elif not state["ahead"] and our_move["action"] == "ATTACK" and draw < convert_p:
+            took = True
+            event = "TAKE"
+        elif state["ahead"] and opp_move["action"] == "ATTACK" and draw < convert_p:
+            took = True
+            event = "LOST_PLACE"
+        elif not state["ahead"] and our_move["action"] == "ATTACK":
+            event = "FAILED_ATTACK"
+        else:
+            event = "HOLD_PLACE"
+
+        next_ahead = (not state["ahead"]) if took else state["ahead"]
+        if took:
+            takes.append({
+                "lap": state["lap"],
+                "kind": event,
+                "ahead": opponent if event == "TAKE" else selected,
+                "note": f'L{state["lap"]} {"take" if event == "TAKE" else "lost to"} {opponent}',
+                "pPass": round(convert_p, 3),
+                "u": hunter_u,
+                "draw": round(draw, 4),
+            })
+
+        display_proba = dict(our_move["proba"] or {})
+        if our_move["action"] != "ATTACK":
+            display_proba["ATTACK"] = min(display_proba.get("ATTACK", 0.0), 0.25)
+            total = sum(display_proba.values()) or 1.0
+            display_proba = {key: round(value / total, 4) for key, value in display_proba.items()}
+        chosen = {
+            "action": our_move["action"],
+            "probability": round(max(0.0, min(1.0, event_probability)), 4),
+            "ourSoc": round(our_move["soc"], 3),
+            "defenderSoc": round(opp_move["soc"], 3),
+            "deployMj": our_move["deploy"],
+            "harvestMj": our_move["harvest"],
+            "opponentAction": opp_move["action"],
+            "opponentDeployMj": opp_move["deploy"],
+            "opponentHarvestMj": opp_move["harvest"],
+            "opponentResponseScore": round(max(opp_move["proba"].values()), 4) if opp_move["proba"] else 0.0,
+            "habitProbabilities": display_proba,
+            "opponentHabitProbabilities": opp_move["proba"],
+        }
         entry = {key: chosen[key] for key in (
-            "action", "probability", "aheadProbability", "ourSoc", "defenderSoc",
+            "action", "probability", "ourSoc", "defenderSoc",
             "deployMj", "harvestMj", "opponentAction", "opponentDeployMj",
-            "opponentHarvestMj", "opponentResponseScore")}
+            "opponentHarvestMj", "opponentResponseScore",
+            "habitProbabilities", "opponentHabitProbabilities")}
         entry.update({
             "lap": state["lap"],
             "role": "DEFENDING" if state["ahead"] else "ATTACKING",
-            "contextSource": "FORCED_WHAT_IF_FIRST_LAP" if (not path and forced) else "START_STATE_CARRIED_FUTURE_BLIND",
-            "forced": bool(not path and forced),
-            "pitPlan": "NO BOX MODEL · START STATE CARRIED",
+            "ahead": next_ahead,
+            "aheadProbability": 1.0 if next_ahead else 0.0,
+            "event": event,
+            "took": took,
+            "convertP": round(convert_p, 4),
+            "draw": round(draw, 4),
+            "goLap": go_lap,
+            "planned": bool(go_lap is not None and state["lap"] == go_lap),
+            "contextSource": "REAL_PIT" if (our_pit or opp_pit) else (
+                "FORCED_WHAT_IF_FIRST_LAP" if (first_lap and forced) else "MODEL_BRANCH"
+            ),
+            "forced": bool(first_lap and forced),
+            "ourPit": our_pit,
+            "opponentPit": opp_pit,
+            "pitPlan": "REAL RACE PITS ONLY",
+            "driverScore": hunter_u,
+            "zone": our_move.get("zone"),
+            "clipReason": our_move.get("clipReason"),
+            "harvestLaw": our_move.get("harvestLaw"),
+            "battery": {
+                "u": hunter_u,
+                "hunter": hunter,
+                "ourSocMj": chosen["ourSoc"] if hunter == selected else chosen["defenderSoc"],
+                "opponentSocMj": chosen["defenderSoc"] if hunter == selected else chosen["ourSoc"],
+                "ourLeftPct": round((chosen["ourSoc"] / 4.0) * 100.0, 1),
+                "opponentLeftPct": round((chosen["defenderSoc"] / 4.0) * 100.0, 1),
+                "overtakeP": chosen["probability"] if not state["ahead"] else overtake_p,
+                "convertP": round(convert_p, 4),
+                "draw": round(draw, 4),
+                "harvestLaw": our_move.get("harvestLaw"),
+                "note": "u is 2018–2026 take rate, this GP stripped. A seeded draw vs overtakeP × u decides if the pass lands. Constructed C5.2 store, not team battery.",
+            },
         })
         path.append(entry)
-        if chosen["action"] != last_action:
+        if chosen["action"] != last_action or took:
             action_changes.append({
                 "lap": state["lap"],
                 "action": chosen["action"],
                 "opponentAction": chosen["opponentAction"],
+                "event": event,
                 "ourSoc": chosen["ourSoc"],
                 "defenderSoc": chosen["defenderSoc"],
-                "aheadProbability": chosen["aheadProbability"],
+                "aheadProbability": entry["aheadProbability"],
             })
             last_action = chosen["action"]
         state = {
             "lap": state["lap"] + 1,
-            "ahead": chosen["aheadProbability"] >= 0.5,
-            "aheadProbability": chosen["aheadProbability"],
+            "ahead": next_ahead,
             "ourSoc": chosen["ourSoc"],
             "defenderSoc": chosen["defenderSoc"],
         }
@@ -356,7 +699,20 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
         isinstance(actual_finish, (int, float)) and isinstance(opponent_finish, (int, float))
         and actual_finish < opponent_finish
     )
-    modelled_pair_ahead = bool(path and path[-1]["aheadProbability"] >= 0.5)
+    modelled_pair_ahead = bool(path and path[-1].get("ahead"))
+    modelled_ahead_laps = sum(1 for step in path if step.get("ahead"))
+    if payload.get("skipObservedHold"):
+        observed = None
+    else:
+        observed = observed_pair_ahead_laps(
+            year, round_number, session_name, selected, opponent, start_lap, total_laps)
+    observed_ahead_laps = None if observed is None else int(observed['aheadLaps'])
+    hold_delta = None if observed_ahead_laps is None else modelled_ahead_laps - observed_ahead_laps
+    place_gain = modelled_pair_ahead and not actual_pair_ahead
+    hold_success = hold_delta is not None and hold_delta > 0
+    major_success = bool(place_gain)
+    places = sum(1 for item in takes if item.get("kind") == "TAKE") - sum(1 for item in takes if item.get("kind") == "LOST_PLACE")
+    branch_finish = None if start_position >= 99 else max(1, min(20, start_position - places))
     root_context = context(focus)
     rule_context = payload.get("ruleContext") if isinstance(payload.get("ruleContext"), dict) else {}
     rule_application = (
@@ -365,9 +721,9 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
         else "DISCLOSURE_ONLY_UNTIL_EVENT_APPENDIX_LOADED"
     )
     return {
-        "schemaVersion": "race-branch.v1",
-        "treeVersion": "future-blind-two-car-rollout.v1",
-        "mode": "FUTURE_BLIND_RACE_ROLLOUT",
+        "schemaVersion": "race-branch.v2",
+        "treeVersion": "model-race-branch.v2",
+        "mode": "MODEL_RACE_BRANCH",
         "forcedFirstAction": forced,
         "whatIf": payload.get("whatIf") if isinstance(payload.get("whatIf"), dict) else None,
         "tree": {
@@ -384,22 +740,52 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
         "selectedRoleAtJump": str(focus.get("selectedRole") or ("DEFENDING" if initial_ahead else "ATTACKING")),
         "actionChanges": action_changes,
         "modelledPairAheadAtFlag": modelled_pair_ahead,
-        "modelledPairAheadProbabilityAtFlag": path[-1]["aheadProbability"] if path else 0.0,
+        "modelledPairAheadProbabilityAtFlag": 1.0 if modelled_pair_ahead else 0.0,
+        "takes": takes,
+        "goLap": go_lap,
+        "plannedConvertP": planned_convert,
+        "habitProbabilities": (path[0].get("habitProbabilities") if path else None),
+        "energyPersonality": our_personality,
+        "opponentEnergyPersonality": opp_personality,
+        "driverScore": our_u,
+        "opponentScore": opp_u,
+        "branchFinishPosition": branch_finish,
+        "pitLaps": {
+            selected: sorted(pits.get(selected, set())),
+            opponent: sorted(pits.get(opponent, set())),
+        },
         "actualPairAheadAtFlag": actual_pair_ahead,
         "actualFinishPosition": actual_finish,
         "opponentFinishPosition": opponent_finish,
         "fullGridFinishForecast": None,
+        "holdComparison": {
+            "modelledAheadLaps": modelled_ahead_laps,
+            "observedAheadLaps": observed_ahead_laps,
+            "comparedLaps": None if observed is None else int(observed['comparedLaps']),
+            "holdDelta": hold_delta,
+            "placeGain": place_gain,
+            "success": hold_success,
+            "majorSuccess": major_success,
+            "grade": "MAJOR" if major_success else ("SUCCESS" if hold_success else None),
+            "note": (
+                "Attack: take earlier than the race, then delay their re-pass. "
+                "Defence: delay the lap they passed us. "
+                "Success is more pair-ahead laps than the recorded race. "
+                "Major success is still holding the place when the classified pair did not. "
+                "The car we pass can take it back."
+            ),
+        },
         "finishComparison": {
             "pairOrderMatchesObserved": modelled_pair_ahead == actual_pair_ahead,
             "fullGridComparable": False,
-            "reason": "Only the selected pair is modelled. No full-grid pace, pit, tyre, traffic, retirement, or race-control counterfactual is available.",
+            "reason": "Only the selected pair is modelled. Pace, traffic, and the rest of the grid stay on the recorded race. Pits are the only later recorded fact.",
         },
         "stateProvenance": {
             "horizonLaps": len(path),
             "observedContextLaps": 1 if path else 0,
             "carriedContextLaps": max(0, len(path) - 1),
-            "sourceCounts": {"START_STATE_CARRIED_FUTURE_BLIND": len(path)},
-            "note": "The branch receives only the selected-lap public state. Every later step carries and evolves model state; later recorded race rows are excluded from policy input.",
+            "sourceCounts": {"MODEL_BRANCH": len(path), "REAL_PIT": sum(1 for step in path if step.get("ourPit") or step.get("opponentPit"))},
+            "note": "From JUMP the selected driver is simulated. Later recorded laps are ignored except pit in/out. Energy habits are 2026-only; u is 2018–2026 take rate, not this GP.",
         },
         "decisionContext": {
             "raceControl": "CLEAR" if root_context["track_clear"] else "GATED",
@@ -410,9 +796,9 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
             "ruleContext": {**rule_context, "application": rule_application},
         },
         "opponentPolicy": {
-            "id": "CONSERVATIVE_BEST_RESPONSE_HEURISTIC_V1",
-            "type": "DETERMINISTIC_CONSERVATIVE_BEST_RESPONSE",
-            "description": "At each simulated lap the opposing car selects the response that maximises its modelled immediate objective using only carried state.",
+            "id": "DRIVER_ENERGY_HABIT_V1",
+            "type": "TRAINED_2026_BATTLE_OPEN_HABIT",
+            "description": "Each car spends from its 2026 battle vs open-air deploy habit. The hunter’s 2018–2026 take rate u decides whether an ATTACK lands. This GP is stripped from both.",
         },
         "energyModelVersion": ENERGY_MODEL_VERSION,
         "regulationEra": regulation_era,
@@ -423,11 +809,17 @@ def rollout_to_finish(payload: dict[str, Any]) -> dict[str, Any]:
             "source": energy_config["source"],
         },
         "assumptions": [
-            "The rollout is future-blind: later recorded rows are not supplied to the policy.",
+            "From JUMP the model owns the selected driver's ATTACK/SAVE/DELAY and whether a pass lands.",
+            "The only later recorded fact used is pit in/out laps for this pair.",
+            "Energy personality is 2026 modelled deploy in battle vs open air, this GP stripped. Not team battery.",
+            "u is that driver's 2018–2026 place-take rate, excluding this GP.",
+            "When behind, the model picks the earliest remaining lap whose ATTACK convert% is near the planned maximum, then goes.",
+            "A seeded draw vs overtakeP × u decides if the overtake is performed on this branch.",
+            "After a TAKE the overtaken car becomes the hunter and keeps attacking while they have store. We SAVE to cover and rebuild so leftover does not dump to zero and freeze the lead. Loss of lead can still happen.",
+            "Defence does the same: they keep attacking, we SAVE to delay the lap they passed us in the real race.",
+            "Success is more pair-ahead laps than the recorded race. Major success is a better pair result than the classified race. Not a rewritten grid.",
             "SoC is a public-data model surrogate, not private battery telemetry.",
-            "Only the selected car and its starting attack target are simulated.",
-            "If forcedFirstAction is set, lap 1 of the branch uses that call; later laps return to the policy.",
-            "A full-grid finish forecast is intentionally unavailable until pit, tyre, traffic, pace, retirement and race-control models exist.",
+            "Cars on the map stay on recorded GPS; pair order on the branch can still swap.",
         ],
     }
 

@@ -62,10 +62,16 @@ def build_session_payload(year, round_number, session_name):
         accurate = True if accurate_raw is None else bool(accurate_raw)
         track_status = clean(row.get('TrackStatus'))
         track_status = None if track_status is None else str(track_status)
+        raw_position = clean(row.get('Position'))
+        try:
+            position = int(raw_position) if raw_position is not None else None
+        except (TypeError, ValueError):
+            position = None
         laps.append({
             'driver': clean(row.get('Driver')),
             'lapNumber': int(row['LapNumber']),
             'lapTimeS': td_s(row.get('LapTime')),
+            'position': position,
             'compound': str(compound) if compound is not None else None,
             'isPitLap': pit_lap,
             'deleted': deleted,

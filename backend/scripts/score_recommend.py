@@ -142,6 +142,15 @@ def score(payload: dict, artifact=None) -> dict:
     selected = driver or 'the selected driver'
     years = drs.get('years') or '2018-2025'
     lines = []
+    left = payload.get('modelledLeftPct')
+    if left is not None and _num(left) == _num(left):
+        left_n = _num(left)
+        if inside_drs and left_n >= 40:
+            lines.append(f'MODELLED ES · {selected} {int(round(left_n))}% in an overtake window. This is the better place to spend if a pass is the target. Not team battery.')
+        elif left_n < 25:
+            lines.append(f'MODELLED ES · {selected} {int(round(left_n))}% of the 4 MJ C5.2 window. Rebuild before a dump. Not team battery.')
+        else:
+            lines.append(f'MODELLED ES · {selected} {int(round(left_n))}% left this lap (C5.2 window, started 100%). Not team battery.')
     if gap > 0 and ahead:
         zone = 'inside DRS range' if inside_drs else 'outside DRS range'
         lines.append(f'{selected} is {gap:.2f}s behind {ahead} right now ({zone}, 1.0s timing).')

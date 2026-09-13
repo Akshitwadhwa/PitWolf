@@ -13,6 +13,7 @@ from pathlib import Path
 
 import joblib
 
+from battery_overtake import driver_score, leftover_to_soc, modulate_overtake
 from clip_cached_race import build_field_story, clip_cached, load_session, session_path
 from drs_recipe import DRS_GAP_S, extract_windows, in_drs, laps_already_in_drs
 from energy_transition import ACTION_PROFILE, CAPACITY_MJ
@@ -470,6 +471,16 @@ def simulate_choices(row: dict, event: dict, step: dict, artifact, trend_slice=N
     )
     lost_soon = _lost_soon(row.get('laps') or [], start_lap)
     opponent = _opponent_odds(field, event, step, artifact, row.get('driver'))
+    battery = None
+    if attack_gain is not None:
+        our_soc = leftover_to_soc(leftover)
+        opp_soc = leftover_to_soc(None if not opponent else opponent.get('leftPct'))
+        u = driver_score(event.get('year'), event.get('round'), step.get('lap'), row.get('driver'))
+        battery = modulate_overtake(attack_gain, our_soc, opp_soc if opp_soc is not None else 0.0, u)
+        attack_gain = battery['overtakeP']
+        if attack_row is not None:
+            attack_row['pGain'] = attack_gain
+            attack_row['battery'] = battery
     net_now = _net_pass(attack_gain, opponent)
     p_our_attack = None if attack_gain is None else round(float(attack_gain), 3)
     paths = {}
@@ -580,6 +591,8 @@ def simulate_choices(row: dict, event: dict, step: dict, artifact, trend_slice=N
         'raceEndIfSave': None if not save_row else save_row.get('raceEnd'),
         'pPassIfAttack': p_our_attack,
         'netPassIfAttack': net_now,
+        'battery': battery,
+        'driverScore': None if not battery else battery.get('u'),
         'opponent': opponent,
         'keyLap': None if not key else key.get('lap'),
         'keyTake': key,
@@ -683,6 +696,58 @@ def build_incidents(row: dict, event: dict, series: list[dict], windows: list[di
                 break
     incidents.sort(key=lambda item: (item['priority'], item['lap']))
     return incidents[:10]
+
+
+def _team_top_profiles(payload: dict, field: dict) -> list[dict]:
+    """Each constructor’s better-classified driver and their modelled deploy path."""
+    by_team = {}
+    for item in payload.get('drivers') or []:
+        team = item.get('team')
+        code = item.get('abbr')
+        if not team or not code:
+            continue
+        position = item.get('position')
+        current = by_team.get(team)
+        better = current is None or (
+            position is not None and (current.get('classifiedPosition') is None or position < current['classifiedPosition'])
+        )
+        if better:
+            by_team[team] = {
+                'team': team,
+                'teamColorHex': item.get('teamColorHex'),
+                'driver': code,
+                'name': item.get('name'),
+                'classifiedPosition': position,
+            }
+    field_by_code = {item.get('driver'): item for item in (field.get('drivers') or [])}
+    profiles = []
+    for meta in by_team.values():
+        row = field_by_code.get(meta['driver'])
+        laps = []
+        for step in (row or {}).get('laps') or []:
+            modelled = step.get('modelled') or {}
+            laps.append({
+                'lap': step.get('lap'),
+                'leftPct': modelled.get('endPct'),
+                'action': modelled.get('action'),
+                'consumedMj': modelled.get('consumedMj'),
+                'ahead': step.get('ahead'),
+                'event': step.get('event'),
+            })
+        if not laps:
+            continue
+        consumes = [item.get('consumedMj') or 0 for item in laps]
+        peak_i = max(range(len(consumes)), key=lambda i: consumes[i])
+        profiles.append({
+            **meta,
+            'laps': laps,
+            'peakConsumeMj': round(consumes[peak_i], 3),
+            'peakConsumeLap': laps[peak_i].get('lap'),
+            'meanConsumeMj': round(sum(consumes) / len(consumes), 3),
+            'endLeftPct': laps[-1].get('leftPct'),
+        })
+    profiles.sort(key=lambda item: item.get('classifiedPosition') or 99)
+    return profiles
 
 
 def _pick_trend(trend: dict, driver: str, location: str) -> dict:
@@ -891,6 +956,7 @@ def build_energy_trend(year, round_number, session_name, driver: str | None) -> 
         'bestCounterfactual': spend_here[0] if spend_here else (missed[0] if missed else None),
         'incidents': incidents,
         'whatIf': what_if,
+        'teamTopDrivers': _team_top_profiles(payload, field),
         'saveKeepMj': SAVE_KEEP_MJ,
         'provenance': [
             'REAL timing positions, gaps, OVERTAKE flags, and chase gaps from the cached session',
@@ -900,6 +966,7 @@ def build_energy_trend(year, round_number, session_name, driver: str | None) -> 
             'What-if ATTACK commits the 1.0s window: convert-in-1 blended with that driver\'s 2018–2025 DRS efficiency',
             'What-if SAVE keeps one DELAY-vs-SAVE deploy and lowers modelled 2-lap loss while being chased',
             'End position = classified finish shifted by the after-fight delta vs what they actually did — not a second full-race replay',
+            'Battery overtake % uses modelled leftover + a seeded 0–1 driver score; opponent hold uses the car ahead’s current leftover only',
         ],
     }
 

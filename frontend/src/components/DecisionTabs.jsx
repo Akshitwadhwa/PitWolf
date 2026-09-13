@@ -391,9 +391,9 @@ export function TelemetryIncidentBoard({ sel, onLoadLaps, onOpenSimulation }) {
         <div><span>MODEL PICK</span><b className={`call-${model?.call?.toLowerCase?.() || 'hold'}`}>{model?.call || '—'}</b><em>{model?.theyDid === model?.call ? 'same as what they spent — the useful branch is the other call' : (model?.couldDiffer ? `classified finish ${finishPos(model.observedFinish)} → ${finishPos(model.raceEndIfCall)}` : 'no extra whole place before the flag')}</em></div>
       </div>
       {model?.opponent && <div className="dt-incident-odds">
-        <div><span>IF THEY ATTACK</span><b>{oddsPct(model.pPassIfAttack)}</b><em>trained chance this pass lands in 2 laps</em></div>
+        <div><span>IF THEY ATTACK</span><b>{oddsPct(model.pPassIfAttack)}</b><em>trained chance this pass lands in 2 laps{model.battery ? ` · battery-adjusted from ${oddsPct(model.battery.baseOvertakeP)}` : ''}</em></div>
         <div><span>{model.opponent.driver} HOLDS</span><b>{oddsPct(model.opponent.pHold)}</b><em>they {model.opponent.theyDid || 'spent'} · {model.opponent.leftPct == null ? '—' : `${Math.round(model.opponent.leftPct)}%`} energy left</em></div>
-        <div><span>NET PASS</span><b>{oddsPct(model.netPassIfAttack)}</b><em>our pass chance after their hold chance</em></div>
+        <div><span>NET PASS</span><b>{oddsPct(model.netPassIfAttack)}</b><em>our pass chance after their hold chance{model.driverScore == null ? '' : ` · driver score ${Number(model.driverScore).toFixed(2)}`}</em></div>
       </div>}
       <p className="dt-incident-why">{model?.why}</p>
       <div className="dt-incident-finish">
@@ -635,7 +635,7 @@ export function OvertakeTab({ sel, decision, preds }) {
         <b>{accuracy == null ? '—' : `${accuracy}%`}</b>
         <span>{agree} of {scored.length} decision points · predicted label matches the observed outcome</span>
       </div>
-      <p className="ov-notes">Labels are modelled outcomes: ATTACK = pass made and held {dp.holdLaps} laps, DELAY = durable pass within {dp.holdLaps} laps, SAVE = no durable pass. Lapping/backmarker candidates are excluded before training ({dp.lappingExcludedCount ?? 0} in this race). This section describes the selected race only; global unseen-season validation is shown separately under VALIDATION.</p>
+      <p className="ov-notes">Labels are modelled outcomes: ATTACK = pass made and held {dp.holdLaps} laps, DELAY = durable pass within {dp.holdLaps} laps, SAVE = no durable pass. Lapping/backmarker candidates are excluded before training ({dp.lappingExcludedCount ?? 0} in this race). This section describes the selected race only.</p>
     </section>
 
     <section className="ov-panel dt-dp-panel">
@@ -1035,7 +1035,26 @@ function EnergyBattlePanel({ sel, trend, focusLap, onFocus, onOpenSimulation }) 
       <span>ENERGY × OVERTAKE / {data.driver} · {String(data.event?.name || '').toUpperCase()}</span>
       <Badge tone="derived">2018–2025 TREND · NOT A DRAW</Badge>
     </div>
-    <p className="ov-notes">Orange is a pass, teal is being hunted, blue is a 1.0s window they left; energy left is our 4 MJ store model, not the team battery.</p>
+    <p className="ov-notes">Orange is a pass, teal is being hunted, blue is a 1.0s window they left; energy left is our 4 MJ store model, not the team battery. Team rows below use that constructor’s better-classified driver in this race.</p>
+    {!!data.teamTopDrivers?.length && <div className="dt-team-deploy">
+      <div className="ov-panel-head second"><span>TEAM TOP DRIVER · MODELLED DEPLOY</span><Badge tone="simulated">CLASSIFIED BEST PER CONSTRUCTOR</Badge></div>
+      {data.teamTopDrivers.map((item) => (
+        <div className="dt-team-deploy-row" key={item.team}>
+          <b>{item.driver}<em>P{item.classifiedPosition ?? '—'} · {item.team}</em></b>
+          <span className="dt-team-deploy-bar" aria-hidden="true">
+            {(item.laps || []).map((lap) => (
+              <i
+                key={lap.lap}
+                className={`is-${String(lap.action || 'DELAY').toLowerCase()}${lap.event === 'OVERTAKE' ? ' is-take' : ''}`}
+                style={{ opacity: Math.max(0.18, Math.min(1, (lap.consumedMj || 0) / 0.9)) }}
+                title={`L${lap.lap} ${lap.action} · ${lap.consumedMj ?? '—'} MJ · ${lap.leftPct ?? '—'}% left`}
+              />
+            ))}
+          </span>
+          <em>peak L{item.peakConsumeLap ?? '—'} · {mj(item.peakConsumeMj)} · end {item.endLeftPct == null ? '—' : `${Math.round(item.endLeftPct)}%`}</em>
+        </div>
+      ))}
+    </div>}
     <div className="dt-story-focus">
       <div><span>PASSES</span><b>{data.summary?.overtakes ?? 0}</b><em>places they actually gained</em></div>
       <div><span>1.0s WINDOWS</span><b>{data.summary?.drsConverted}/{data.summary?.drsWindows}</b><em>passed / times they sat in DRS range</em></div>

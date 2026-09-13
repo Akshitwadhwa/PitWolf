@@ -295,6 +295,27 @@ async function analyseEngineer(message, team) {
 const F1_CACHE_DIR = path.join(root, 'data', 'f1-cache')
 const OVERTAKE_RULE_CONTEXT_PATH = path.join(root, 'data', 'overtake-rule-context.json')
 const STRAIGHT_MODE_VISUAL_EVIDENCE_PATH = path.join(root, 'data', 'straight-mode-visual-evidence.json')
+const WORKS_EIGHT = ['LEC', 'HAM', 'RUS', 'ANT', 'NOR', 'PIA', 'VER', 'HAD']
+const WORKS_TEAMS = {
+  LEC: 'Ferrari', HAM: 'Ferrari', RUS: 'Mercedes', ANT: 'Mercedes',
+  NOR: 'McLaren', PIA: 'McLaren', VER: 'Red Bull', HAD: 'Red Bull',
+}
+
+async function readModelJson(name) {
+  try {
+    return JSON.parse(await readFile(path.join(F1_CACHE_DIR, 'models', name), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+function pickWorks(map) {
+  const out = {}
+  for (const code of WORKS_EIGHT) {
+    if (map?.[code]) out[code] = map[code]
+  }
+  return out
+}
 
 function finiteRuleNumber(value, minimum = 0) {
   return Number.isFinite(Number(value)) && Number(value) >= minimum
@@ -783,7 +804,7 @@ export async function handler(request, response) {
       return json(response, 400, { error: 'year, round and session are required' })
     }
     try {
-      const cacheRel = `race-replay/v1/${year}/${round}_${f1Slug(session)}.json`
+      const cacheRel = `race-replay/v2/${year}/${round}_${f1Slug(session)}.json`
       return json(response, 200, await f1CachedOrFetch(cacheRel, 'fetch_f1_replay_window.py', [
         '--year', year, '--round', round, '--session', session, '--full-race',
       ], 600000))
@@ -1035,6 +1056,110 @@ export async function handler(request, response) {
     }
   }
 
+  // GET /api/f1/model-diff — 2026 top-8 JUMP windows vs recorded pair.
+  if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/api/f1/model-diff') {
+    try {
+      const reportPath = path.join(F1_CACHE_DIR, 'models', 'model_overtake_works.json')
+      return json(response, 200, JSON.parse(await readFile(reportPath, 'utf8')))
+    } catch {
+      return json(response, 404, { error: 'model-diff report not built yet — run eval_model_overtakes.py' })
+    }
+  }
+
+  // GET /api/f1/models-result — ModelNext phases + trained Random Forest cards.
+  if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/api/f1/models-result') {
+    const paceFile = await readModelJson('qualifying_pace_report_2026_v1.json')
+    const habits = await readModelJson('driver_energy_habits_report.json')
+    const recommend = await readModelJson('recommend_report.json')
+    const trend = await readModelJson('energy_overtake_trend.json')
+    const byRace = await readModelJson('models_result_races.json')
+    const qualifyingPace = paceFile || {
+      status: 'DOCUMENTED_IN_MODELNEXT',
+      source: 'ModelNext.md',
+      label: 'OBSERVED_PACE_BASELINE',
+      selectedModel: 'RandomForestRegressor',
+      selectedHeldOutMetrics: { maeS: 1.747, biasS: 0.844 },
+      candidates: {
+        RandomForestRegressor: { maeS: 1.747, biasS: 0.844 },
+      },
+      evaluationRows: 1768,
+      heldOutRounds: 'last 3 completed 2026 qualifying rounds',
+      note: 'Phase 2 evaluation from ModelNext.md. The joblib is not in this cache. Predicts observed delta-to-pole, not team ERS.',
+    }
+    const drivers = WORKS_EIGHT.map((code) => {
+      const habit = (habits?.snapshot || []).find((row) => row.driver === code) || {}
+      const convert = trend?.drivers?.[code] || {}
+      const drs = recommend?.drs?.drivers?.[code] || {}
+      return {
+        driver: code,
+        team: WORKS_TEAMS[code],
+        huntAttackRate: habit.overtakeAttackRate ?? null,
+        battleAttackRate: habit.battleAttackRate ?? null,
+        openSaveRate: habit.openSaveRate ?? null,
+        u: habit.u ?? null,
+        uLaps: habit.uLaps ?? null,
+        convertRate: convert.efficiency ?? drs.efficiency ?? null,
+        convertWindows: convert.windows ?? drs.windows ?? null,
+      }
+    })
+    return json(response, 200, {
+      family: 'Random Forest is the live tabular model. XGBoost / LightGBM is Phase 3 and is not trained.',
+      phases: [
+        { id: 'baseline', title: 'FIA energy optimiser', status: 'IMPLEMENTED', kind: 'PHYSICS', note: 'Deterministic C5.2 bounds. Not an ML model.' },
+        { id: 'phase2', title: 'Ridge + Random Forest pace', status: qualifyingPace.status || 'PACE_BASELINE_EVALUATED', kind: 'RANDOM_FOREST', note: 'Phase 2. Held-out MAE on observed qualifying delta-to-pole.' },
+        { id: 'phase3', title: 'XGBoost / LightGBM pace', status: 'NOT_TRAINED', kind: 'XGBOOST', note: 'Starts only if it beats Ridge and Random Forest on held-out rounds.' },
+        { id: 'phase6', title: 'Overtake + driver habits', status: habits ? 'TRAINED' : 'MISSING', kind: 'RANDOM_FOREST', note: '2026 energy-habit forest and 2018–2025 overtakeSoon / DRS forests.' },
+      ],
+      qualifyingPace,
+      xgboost: {
+        status: 'NOT_TRAINED',
+        reason: 'ModelNext Phase 3. Do not adopt XGBoost because it is more complex. The live race models are scikit-learn Random Forests.',
+      },
+      habits: habits ? {
+        schema: 'driver-energy-habits.v3',
+        energyRaces: habits.energyRaceCount,
+        energySamples: habits.energySamples,
+        testRaces: habits.testRaces,
+        aggressionRaces: habits.aggressionRaceCount,
+        aggressionGlobalRate: habits.aggressionGlobalRate,
+        model: habits.model,
+        how: 'RandomForestClassifier, 180 trees, depth 8, this-GP rates stripped. Target is modelled ATTACK / SAVE / DELAY on the constructed 4 MJ store. Hold-out is 3 random 2026 races. Bars are mean Gini impurity drop. Driver u is 2018–2026 place-take rate. Hunt attack is 2026 modelled ATTACK share inside 1.0s windows.',
+      } : null,
+      recommend: recommend ? {
+        schema: recommend.schema,
+        years: recommend.years,
+        racesTrain: recommend.racesTrain,
+        racesTest: recommend.racesTest,
+        samplesTrain: recommend.samplesTrain,
+        samplesTest: recommend.samplesTest,
+        overtakeSoon: recommend.targets?.overtakeSoon,
+        recoverIfLost: recommend.targets?.recoverIfLost,
+        pushHelps: recommend.targets?.pushHelps,
+        placesToFlag: recommend.outcome?.placesToFlag,
+        loseSoon: recommend.outcome?.loseSoon,
+        drs: {
+          windows: recommend.drs?.windows,
+          converts: recommend.drs?.converts,
+          efficiency: recommend.drs?.efficiency,
+          convertWithin1: recommend.drsModel?.convertWithin1,
+        },
+        how: 'RandomForestClassifier / Regressor on 2018–2025, race-level 20% hold-out. overtakeSoon is a place take later in that race. Bars are Gini importance. DRS convert uses timing gap ≤ 1.0s, not official DRS telemetry.',
+        note: recommend.note,
+      } : null,
+      trend: trend ? {
+        schema: trend.schema,
+        years: trend.years,
+        races: trend.races,
+        global: trend.global,
+        works: pickWorks(trend.drivers),
+        how: 'Not a forest. Count of 1.0s hunt windows 2018–2025 that converted a place. Leftover is the modelled C5.2 store, not team battery.',
+      } : null,
+      drivers,
+      races: byRace?.races || [],
+      raceNote: byRace?.note || 'Pick a 2026 race to see JUMP first actions vs the recorded pair.',
+    })
+  }
+
   // GET /api/f1/recommend-report — random race-level holdout metrics.
   if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/api/f1/recommend-report') {
     try {
@@ -1194,7 +1319,7 @@ export async function handler(request, response) {
       // v3 uses FastF1 CircuitInfo's numbered corner sequence, projected on
       // the recorded centre line. This supersedes the unsafe curvature-based
       // turn-number heuristic used by earlier cached maps.
-      const cacheRel = `trackmap/v3/${year}/${round}_${f1Slug(session)}.json`
+      const cacheRel = `trackmap/v4/${year}/${round}_${f1Slug(session)}.json`
       return json(response, 200, await f1CachedOrFetch(cacheRel, 'fetch_f1_trackmap.py', ['--year', year, '--round', round, '--session', session], 240000))
     } catch (error) {
       return json(response, 502, { error: error.message })

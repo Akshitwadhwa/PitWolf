@@ -17,7 +17,6 @@ from typing import Any
 from c52_battery import (
     BATTERY_ENGINE_VERSION,
     CITATIONS,
-    RECHARGE_CAP_MJ,
     SOC_WINDOW_MJ,
     apply_legal_lap,
     battery_box,
@@ -118,24 +117,26 @@ def rollout(payload: dict[str, Any]) -> dict[str, Any]:
     start = soc
     overtake = bool(payload.get('overtakeActive'))
     era = '2026' if int(_num(payload.get('year'), 2026)) >= 2026 else '2018_2025'
-    harvest_used = 0.0
     consumed_total = 0.0
     harvested_total = 0.0
     steps = []
 
     for raw in laps:
         row = dict(raw or {})
+        row.setdefault('year', payload.get('year'))
+        row.setdefault('round', payload.get('round'))
+        row.setdefault('session', payload.get('session') or 'Race')
+        if row.get('lapTimeS') is None and row.get('ourLapTimeS') is not None:
+            row['lapTimeS'] = row.get('ourLapTimeS')
         row['legal'] = legal_propulsion_kw(row.get('speedKph') or row.get('raceMeanSpeedKph'), overtake)
         action, reason = choose_action(row, soc, policy)
+        # C5.2.10 is a per-lap bus cap, not a race-long recharge tank.
         step = apply_legal_lap(
             soc, action, row,
             overtake_active=overtake,
-            harvest_used_mj=harvest_used,
+            harvest_used_mj=0.0,
             era=era,
         )
-        harvest_used = step['harvestUsedAfterLapMj']
-        if harvest_used >= RECHARGE_CAP_MJ:
-            harvest_used = 0.0  # next lap gets a fresh 8.5 MJ recharge budget
         possible = pass_possible(row, step)
         soc = step['socEndMj']
         consumed_total += step['consumedMj']
@@ -156,6 +157,7 @@ def rollout(payload: dict[str, Any]) -> dict[str, Any]:
             'legalDeployKw': step['legal']['legalDeployKw'],
             'speedCut': step['legal']['speedCut'],
             'clipReason': step['clipReason'],
+            'harvestLaw': step.get('harvestLaw'),
             'passWindow': possible,
             'box': battery_box(step['socStartMj'], step['socEndMj'], step['consumedMj'], step['harvestedMj']),
         })

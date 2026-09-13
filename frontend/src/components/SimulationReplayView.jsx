@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { circuitBasis, fitCircuitView } from './CircuitMap'
 import { fetchBatteryClip, fetchEnergyLap, fetchRecommend } from '../lib/f1api'
 import '../simulationreplay.css'
 
 const YEARS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018]
 const SPEEDS = [1, 2, 4, 8]
 const MAX_VISUAL_SELECTIONS = 4
+const BATTLE_GAP_S = 1.0
 const SESSION_LABELS = {
   'Practice 1': 'FP1',
   'Practice 2': 'FP2',
@@ -81,37 +83,22 @@ function displayPosition(driver, fallback) {
   return /^\d+$/.test(String(driver?.classifiedPosition ?? '')) ? driver.classifiedPosition : fallback
 }
 
-function projection(points, height = 520, padding = 46) {
+function projection(points, height = 520, padding = 46, rotation = 0) {
   if (!points?.length) return null
-  const normalWidth = Math.max(1, Math.max(...points.map((point) => point.x)) - Math.min(...points.map((point) => point.x)))
-  const normalHeight = Math.max(1, Math.max(...points.map((point) => point.y)) - Math.min(...points.map((point) => point.y)))
-  const viewportWidth = 760
-  const targetAspect = 1.45
-  // FastF1 circuit coordinates have no presentation orientation. Rotate the
-  // whole recorded coordinate system when it better matches the player, while
-  // preserving every real relative position and corner location.
-  const rotate = Math.abs(Math.log((normalWidth / normalHeight) / targetAspect))
-    > Math.abs(Math.log((normalHeight / normalWidth) / targetAspect))
-  const orient = (x, y) => rotate ? { x: y, y: -x } : { x, y }
-  const oriented = points.map((point) => orient(point.x, point.y))
-  const xs = oriented.map((point) => point.x)
-  const ys = oriented.map((point) => point.y)
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
-  // Every circuit gets the same presentation viewport. Fit each real track
-  // inside it instead of letting a long/narrow circuit expand its SVG viewBox
-  // and make the whole map appear smaller than Barcelona.
-  const scale = Math.min(
-    (viewportWidth - padding * 2) / Math.max(1, maxX - minX),
-    (height - padding * 2) / Math.max(1, maxY - minY),
-  )
-  const width = viewportWidth
-  const ox = (width - (maxX - minX) * scale) / 2
-  const oy = padding
-  const project = (x, y) => {
-    const point = orient(x, y)
-    return { x: ox + (point.x - minX) * scale, y: height - oy - (point.y - minY) * scale }
+  return fitCircuitView(points, 760, height, padding, circuitBasis(points, rotation))
+}
+
+function offsetCornerLabel(point, outline, distance = 16, width = 760, height = 520) {
+  if (!outline?.length) return point
+  const meanX = outline.reduce((sum, item) => sum + item.x, 0) / outline.length
+  const meanY = outline.reduce((sum, item) => sum + item.y, 0) / outline.length
+  const dx = point.x - meanX
+  const dy = point.y - meanY
+  const length = Math.hypot(dx, dy) || 1
+  return {
+    x: Math.min(width - 12, Math.max(12, point.x + (dx / length) * distance)),
+    y: Math.min(height - 12, Math.max(12, point.y + (dy / length) * distance)),
   }
-  return { width, height, project, outline: points.map((point) => project(point.x, point.y)) }
 }
 
 function pointAtDistance(points, distance) {
@@ -209,11 +196,11 @@ function selectedGapRows(frame, trackmap, drivers, selectedDrivers, lapTimeS) {
     .sort((left, right) => left.position - right.position)
 }
 
-function GapLeaderboard({ rows, drivers }) {
+function GapLeaderboard({ rows, drivers, heading = 'SELECTED DRIVERS · RECORDED TIMING' }) {
   const infoByDriver = new Map((drivers ?? []).map((driver) => [driver.driver, driver]))
   if (!rows.length) return null
   return <div className="sim-gap-leaderboard" aria-label="Selected driver gaps">
-    <div className="sim-gap-heading">SELECTED DRIVERS · RECORDED TIMING</div>
+    <div className="sim-gap-heading">{heading}</div>
     {rows.map((row, index) => {
       const info = infoByDriver.get(row.driver)
       const name = displayDriverName(info ?? { driver: row.driver })
@@ -240,6 +227,19 @@ function lapStateAt(boundaries, time) {
     const isLast = index === entries.length - 1
     return time >= entry.startT && (time < entry.endT || (isLast && time <= entry.endT))
   }) ?? null
+}
+
+function playheadForLap(boundaries, frames, lap) {
+  const boundary = (boundaries ?? []).find((entry) => Number(entry.lap) === Number(lap))
+  if (!boundary || !Number.isFinite(Number(boundary.startT))) return null
+  const start = Number(boundary.startT)
+  const end = Number(boundary.endT)
+  // Sit just inside the lap so the map is not the previous lap’s finish line.
+  const time = Number.isFinite(end) && end > start
+    ? Math.min(start + 0.15, start + Math.max(0.05, (end - start) * 0.02), end - 0.01)
+    : start
+  const index = (frames ?? []).findIndex((frame) => Number(frame.t) >= time)
+  return { time, index: index < 0 ? Math.max(0, (frames?.length ?? 1) - 1) : index, lap: Number(boundary.lap) }
 }
 
 function fastestCompletedLapDriver(lapBoundariesByDriver, time) {
@@ -287,10 +287,163 @@ function recordedRaceOrder(frame, drivers, lapBoundariesByDriver, time) {
   })
 }
 
-function RaceOrderBoard({ rows }) {
+function isGridFallbackOrder(order) {
+  return Boolean(order?.length) && order.every((row) => row.timingSource === 'RECORDED_GRID_POSITION')
+}
+
+function runningOrderNeighbours(order, driver) {
+  const index = (order ?? []).findIndex((row) => row.driver === driver)
+  if (index < 0) return { us: null, ahead: null, behind: null }
+  const us = order[index]
+  const lastPosition = Math.max(0, ...order.map((row) => Number(row.timingPosition) || 0))
+  const leader = Number(us.timingPosition) === 1 || index === 0
+  const last = Number(us.timingPosition) === lastPosition || index === order.length - 1
+  return {
+    us,
+    ahead: leader ? null : order[index - 1],
+    behind: last ? null : order[index + 1],
+  }
+}
+
+function officialRaceOrder(frames, drivers, lapBoundariesByDriver, time, lapEntry) {
+  const frame = interpolateFrame(frames, time)
+  let order = recordedRaceOrder(frame, drivers, lapBoundariesByDriver, time)
+  // Lights-out frames still carry the grid. Official lap Position is the
+  // end-of-lap classification — use that whenever the current sample is grid-only.
+  if (lapEntry && isGridFallbackOrder(order)) {
+    const endT = Math.max(Number(lapEntry.startT) || 0, Number(lapEntry.endT) - 0.05)
+    const endFrame = interpolateFrame(frames, endT) ?? frame
+    order = recordedRaceOrder(endFrame, drivers, lapBoundariesByDriver, endT)
+  }
+  return order
+}
+
+function mergeOfficialActors(official, field) {
+  if (!official?.us) return field ?? null
+  const sameAhead = field?.ahead?.driver && official.ahead?.driver === field.ahead.driver
+  const sameBehind = field?.behind?.driver && official.behind?.driver === field.behind.driver
+  return {
+    us: {
+      ...official.us,
+      gapToAheadS: official.us.gapToAheadS ?? (sameAhead ? field.us?.gapToAheadS : null),
+    },
+    ahead: official.ahead
+      ? { ...official.ahead, gapToAheadS: official.ahead.gapToAheadS ?? (sameAhead ? field?.us?.gapToAheadS : null) }
+      : null,
+    behind: official.behind
+      ? { ...official.behind, gapToAheadS: official.behind.gapToAheadS ?? (sameBehind ? field?.behind?.gapToAheadS : null) }
+      : null,
+    closingRateS: field?.closingRateS,
+  }
+}
+
+function isCloseBattle(gapS) {
+  return Number.isFinite(Number(gapS)) && Number(gapS) <= BATTLE_GAP_S
+}
+
+function isRaceLeader(us, ahead) {
+  return Number(us?.timingPosition) === 1 || !ahead?.driver || ahead.driver === us?.driver
+}
+
+function isRaceLast(us, behind) {
+  return !behind?.driver || behind.driver === us?.driver
+}
+
+function resolveBattleFocus(us, ahead, behind) {
+  // Ahead / behind are this lap’s running order only. P1 has no attack
+  // target. Last has no car to defend against.
+  const closeAhead = !isRaceLeader(us, ahead) && isCloseBattle(us?.gapToAheadS)
+  const closeBehind = !isRaceLast(us, behind) && isCloseBattle(behind?.gapToAheadS)
+  if (closeAhead) {
+    return {
+      role: 'ATTACKING',
+      opponent: ahead.driver,
+      gapS: Number(us.gapToAheadS),
+      closeAhead,
+      closeBehind,
+    }
+  }
+  if (closeBehind) {
+    return {
+      role: 'DEFENDING',
+      opponent: behind.driver,
+      gapS: Number(behind.gapToAheadS),
+      closeAhead,
+      closeBehind,
+    }
+  }
+  return { role: null, opponent: null, gapS: null, closeAhead, closeBehind }
+}
+
+function leadInLap(lap) {
+  const value = Number(lap)
+  return Number.isFinite(value) && value > 1 ? value - 1 : value
+}
+
+function branchStepForLap(tree, lap) {
+  if (!tree?.path?.length || !Number.isFinite(Number(lap))) return null
+  const start = Number(tree.startLap ?? tree.path[0]?.lap)
+  if (!Number.isFinite(start) || Number(lap) < start) return null
+  return tree.path.find((item) => Number(item.lap) === Number(lap)) ?? tree.path.at(-1)
+}
+
+function applyBranchPairOrder(rows, tree, driver, defender, lap) {
+  if (!tree?.path?.length || !rows?.length || !driver || !defender) return rows
+  const step = branchStepForLap(tree, lap)
+  if (!step) return rows
+  const copy = rows.map((row) => ({ ...row }))
+  const ours = copy.findIndex((row) => row.driver === driver)
+  const theirs = copy.findIndex((row) => row.driver === defender)
+  if (ours < 0 || theirs < 0) return rows
+  const shouldLead = Boolean(step.ahead)
+  const leadsNow = ours < theirs
+  if (shouldLead === leadsNow) return copy
+  const low = Math.min(ours, theirs)
+  const high = Math.max(ours, theirs)
+  const swap = copy[low]
+  copy[low] = copy[high]
+  copy[high] = swap
+  return copy.map((row, index) => ({ ...row, timingPosition: index + 1 }))
+}
+
+function applyBranchPairToGapRows(rows, tree, driver, defender, lap) {
+  if (!rows?.length) return rows
+  return applyBranchPairOrder(
+    rows.map((row) => ({ ...row, timingPosition: row.position })),
+    tree,
+    driver,
+    defender,
+    lap,
+  ).map((row, index) => ({ ...row, position: row.timingPosition ?? index + 1 }))
+}
+
+function applyBranchPairToFrame(frame, tree, driver, defender, lap) {
+  if (!frame?.cars?.length || !tree?.path?.length || !driver || !defender) return frame
+  const step = branchStepForLap(tree, lap)
+  if (!step) return frame
+  const ours = frame.cars.find((car) => car.driver === driver)
+  const theirs = frame.cars.find((car) => car.driver === defender)
+  if (!ours || !theirs) return frame
+  const oursPos = Number(ours.timingPosition)
+  const theirsPos = Number(theirs.timingPosition)
+  if (!Number.isFinite(oursPos) || !Number.isFinite(theirsPos)) return frame
+  const shouldLead = Boolean(step.ahead)
+  const leadsNow = oursPos < theirsPos
+  if (shouldLead === leadsNow) return frame
+  return {
+    ...frame,
+    cars: frame.cars.map((car) => {
+      if (car.driver === driver) return { ...car, x: theirs.x, y: theirs.y }
+      if (car.driver === defender) return { ...car, x: ours.x, y: ours.y }
+      return car
+    }),
+  }
+}
+
+function RaceOrderBoard({ rows, branched = false }) {
   if (!rows.length) return null
   return <section className="sim-card sim-race-order" aria-label="Full recorded race classification">
-    <div className="sim-panel-head"><span>RACE CLASSIFICATION</span><em>RECORDED TIMING</em></div>
+    <div className="sim-panel-head"><span>RACE CLASSIFICATION</span><em>{branched ? 'BRANCH PAIR ORDER' : 'RECORDED TIMING'}</em></div>
     <p className="sim-order-help">LIVE CLASSIFICATION · GAP TO CAR AHEAD</p>
     <div className="sim-order-list">
       {rows.map((row, index) => {
@@ -323,6 +476,31 @@ function fieldStep(field, driver, lap) {
     ?? [...laps].reverse().find((item) => Number(item.lap) <= target)
     ?? laps[0]
     ?? null
+}
+
+function fieldStepExact(field, driver, lap) {
+  if (!field?.drivers || !driver) return null
+  const row = field.drivers.find((item) => item.driver === driver)
+  return (row?.laps ?? []).find((item) => Number(item.lap) === Number(lap)) ?? null
+}
+
+function fieldBattleActors(field, driver, lap) {
+  const step = fieldStepExact(field, driver, lap)
+  if (!step) return null
+  const leader = Number(step.timingPosition) === 1 || !step.ahead || step.ahead === driver
+  const last = !step.behind || step.behind === driver
+  const aheadStep = leader ? null : fieldStepExact(field, step.ahead, lap)
+  const behindStep = last ? null : fieldStepExact(field, step.behind, lap)
+  return {
+    us: {
+      driver,
+      timingPosition: step.timingPosition,
+      gapToAheadS: leader ? null : step.gapToAheadS,
+    },
+    ahead: leader ? null : { driver: step.ahead, timingPosition: aheadStep?.timingPosition },
+    behind: last ? null : { driver: step.behind, timingPosition: behindStep?.timingPosition, gapToAheadS: step.gapToBehindS },
+    closingRateS: step.closingRateS,
+  }
 }
 
 function formatLapTime(seconds) {
@@ -375,6 +553,69 @@ function modelledPct(step, progress = 1) {
   const trough = Math.max(0, Math.min(100, start - (Number(model.consumedMj) / 4) * 100))
   if (fraction < 0.45) return start + (trough - start) * (fraction / 0.45)
   return trough + (end - trough) * ((fraction - 0.45) / 0.55)
+}
+
+function energyZoneOf(step) {
+  if (step?.energyZone) return step.energyZone
+  if (step?.modelled?.zone) return step.modelled.zone
+  if (step?.isPitLap) return 'PIT'
+  const hunt = step?.ahead && Number.isFinite(Number(step.gapToAheadS)) && Number(step.gapToAheadS) <= 1.0
+  if (hunt) return 'OVERTAKE_WINDOW'
+  const fight = Math.min(Number(step?.gapToAheadS ?? 9), Number(step?.gapToBehindS ?? 9)) <= 1.2
+  return fight ? 'BATTLE' : 'OPEN'
+}
+
+function socToPct(mj, capacity = 4) {
+  if (!Number.isFinite(Number(mj)) || !Number.isFinite(Number(capacity)) || capacity <= 0) return null
+  return Math.max(0, Math.min(100, (Number(mj) / Number(capacity)) * 100))
+}
+
+function bestGoFromState(step, driver, personality, leftover) {
+  const zone = energyZoneOf(step)
+  const left = Number(leftover)
+  const huntRate = Number(personality?.overtake?.attackRate ?? personality?.battle?.attackRate)
+  if (!Number.isFinite(left)) return null
+  if (left < 22) return { call: 'REBUILD', place: 'BRAKE HARVEST', note: `${driver} has ${Math.round(left)}% of the 4 MJ C5.2 window. Harvest first.` }
+  if (zone === 'OVERTAKE_WINDOW' && left >= 40 && (!Number.isFinite(huntRate) || huntRate >= 0.28)) {
+    return { call: 'GO', place: 'OVERTAKE WINDOW', note: `This 1.0s window is the better place to spend. ${driver} has ${Math.round(left)}% left.` }
+  }
+  if (zone === 'OVERTAKE_WINDOW') return { call: 'HOLD WINDOW', place: 'OVERTAKE WINDOW', note: `${driver} is inside 1.0s with ${Math.round(left)}% left. Stay in this window.` }
+  if (zone === 'BATTLE') return { call: 'COVER', place: 'BATTLE', note: `${driver} is covering with ${Math.round(left)}% left. The go is the car ahead inside 1.0s.` }
+  return { call: 'REBUILD', place: 'OPEN', note: `${driver} is in open air with ${Math.round(left)}% left. Wait for the next overtake window.` }
+}
+
+function harvestLawLine(law) {
+  if (!law?.brakes || law.sliceMj == null) return null
+  return `${law.brakes} brakes · ≤${Number(law.sliceMj).toFixed(2)} MJ/stop · lap ≤${Number(law.lapHarvestMj ?? law.lapHarvestCapMj ?? 8.5).toFixed(2)} MJ`
+}
+
+function BatteryCell({ label, code, pct, action, zone, consumed, harvested, clip, law, tone = 'real' }) {
+  if (!code) return <div className="sim-battery-cell is-empty"><span>{label}</span><b>—</b></div>
+  const width = pct == null ? 0 : Math.max(0, Math.min(100, pct))
+  const lawLine = harvestLawLine(law)
+  return <div className={`sim-battery-cell is-${tone}`}>
+    <div className="sim-battery-head"><span>{label} · {code}</span><b>{pct == null ? '—' : `${Math.round(pct)}%`}</b></div>
+    <div className="sim-battery-track" role="progressbar" aria-label={`${code} constructed C5.2 leftover`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={pct == null ? 0 : Math.round(pct)}><i style={{ width: `${width}%` }} /></div>
+    <em>{action || '—'} · {String(zone || 'OPEN').replaceAll('_', ' ')}{consumed == null ? '' : ` · −${Number(consumed).toFixed(2)} MJ`}{harvested == null ? '' : ` / +${Number(harvested).toFixed(2)} MJ`}</em>
+    {lawLine ? <small>{lawLine}</small> : null}
+    {clip ? <small>{clip}</small> : null}
+  </div>
+}
+
+function BatteryBoard({ selected, ahead, compare, spark, go, branchSelected, branchAhead }) {
+  return <section className="sim-battery" aria-label="Constructed C5.2 battery">
+    <div className="sim-battery-title"><span>CONSTRUCTED BATTERY · C5.2</span><em>4 MJ WINDOW · SHARED STORE · NOT TEAM TELEMETRY</em></div>
+    <div className={`sim-battery-grid${branchSelected ? ' has-branch' : ''}`}>
+      <BatteryCell {...selected} label="SELECTED" />
+      <BatteryCell {...ahead} label="AHEAD / PAIR" />
+      {compare?.code ? <BatteryCell {...compare} label="COMPARE" /> : null}
+      {branchSelected ? <BatteryCell {...branchSelected} label="PITWOLF SELECTED" tone="model" /> : null}
+      {branchAhead ? <BatteryCell {...branchAhead} label="PITWOLF PAIR" tone="model" /> : null}
+    </div>
+    {spark?.length ? <div className="sim-battery-spark" role="img" aria-label="Leftover percent by lap">{spark.map((tick) => <i key={tick.lap} className={tick.current ? 'is-current' : ''} title={`L${tick.lap} ${Math.round(tick.pct)}%`} style={{ height: `${Math.max(8, tick.pct * 0.28)}%` }} />)}</div> : null}
+    <p className="sim-battery-honest">Constructed 4 MJ C5.2 store. Driver spend is scaled onto legal brake slices. Recorded replay and PitWolf share this store. One brake cannot refill the window.</p>
+    {go ? <p className="sim-battery-go"><b>{go.call} · {go.place}</b><span>{go.note}</span></p> : null}
+  </section>
 }
 
 function recLineKind(line) {
@@ -443,7 +684,8 @@ function nowcastLines({ selected, benchmark, selectedRow, benchRow, selectedStep
     const pct = modelledPct(item.step, progress)
     if (pct == null) return
     const using = item.step.modelled.action === 'ATTACK' || item.step.modelled.consumedMj > item.step.modelled.harvestedMj
-    lines.push(`MODELLED ES · ${item.code} ${Math.round(pct)}% (${using ? 'using' : 'rebuilding'} this lap, started 100%). Not team battery.`)
+    const zone = energyZoneOf(item.step).replaceAll('_', ' ')
+    lines.push(`CONSTRUCTED ES · ${item.code} ${Math.round(pct)}% in ${zone} (${using ? 'using' : 'rebuilding'} this lap). Same 4 MJ C5.2 store as JUMP. Not team battery.`)
   })
   return lines.slice(0, 3)
 }
@@ -458,7 +700,7 @@ function DriverCompareCard({ label, code, step, progress }) {
   </div>
 }
 
-function RaceFieldHud({ field, driver, playbackLap, playhead, loading, error, event }) {
+function RaceFieldHud({ field, driver, playbackLap, playhead, loading, error, event, branchStep = null, compareActive = false, energyPersonality = null, branchCapacity = 4, modelOpponent = null }) {
   const selectedRow = fieldDriver(field, driver)
   const selectedStep = fieldStep(field, driver, playbackLap?.lap)
   const ahead = selectedStep?.ahead
@@ -524,7 +766,28 @@ function RaceFieldHud({ field, driver, playbackLap, playhead, loading, error, ev
   const outputLines = allRecLines.filter((line) => recLineKind(line) === 'output')
   const visibleTicks = (selectedRow.laps ?? []).filter((step) => Number(step.lap) <= Number(selectedStep.lap))
   const tone = recommend.data?.action === 'PUSH' ? 'is-overtake' : selectedStep.event === 'SLOW' ? 'is-slow' : selectedStep.event === 'PIT' ? 'is-pit' : ''
+  const selectedPct = modelledPct(selectedStep, progress)
+  const aheadPct = modelledPct(aheadStep, progress)
+  const benchPct = modelledPct(benchStep, progress)
+  const spark = (selectedRow.laps ?? []).filter((step) => Number(step.lap) <= Number(selectedStep.lap)).map((step) => ({
+    lap: step.lap,
+    pct: Number(step.modelled?.endPct ?? step.modelled?.startPct ?? 0),
+    current: step.lap === selectedStep.lap,
+  }))
+  const go = bestGoFromState(selectedStep, driver, energyPersonality, selectedPct)
+  const branchOursPct = compareActive ? socToPct(branchStep?.ourSoc, branchCapacity) : null
+  const branchTheirsPct = compareActive ? socToPct(branchStep?.defenderSoc, branchCapacity) : null
+  const lawOf = (step) => step?.modelled ? { brakes: step.modelled.brakeSlices, sliceMj: step.modelled.maxSliceMj, lapHarvestMj: step.modelled.lapHarvestCapMj } : null
   return <aside className={`sim-field-bar is-compare ${tone}`} aria-label="Driver comparison field">
+    <BatteryBoard
+      selected={{ code: driver, pct: selectedPct, action: selectedStep.modelled?.action, zone: energyZoneOf(selectedStep), consumed: selectedStep.modelled?.consumedMj, harvested: selectedStep.modelled?.harvestedMj, clip: selectedStep.modelled?.clipReason, law: lawOf(selectedStep) }}
+      ahead={{ code: ahead, pct: aheadPct, action: aheadStep?.modelled?.action, zone: energyZoneOf(aheadStep), consumed: aheadStep?.modelled?.consumedMj, harvested: aheadStep?.modelled?.harvestedMj, law: lawOf(aheadStep) }}
+      compare={{ code: benchmark, pct: benchPct, action: benchStep?.modelled?.action, zone: energyZoneOf(benchStep), consumed: benchStep?.modelled?.consumedMj, harvested: benchStep?.modelled?.harvestedMj, law: lawOf(benchStep) }}
+      spark={spark}
+      go={go}
+      branchSelected={branchOursPct == null ? null : { code: driver, pct: branchOursPct, action: branchStep?.action, zone: branchStep?.zone || 'MODEL BRANCH', consumed: branchStep?.deployMj, harvested: branchStep?.harvestMj, clip: branchStep?.clipReason, law: branchStep?.harvestLaw || branchStep?.battery?.harvestLaw }}
+      branchAhead={branchTheirsPct == null ? null : { code: modelOpponent || branchStep?.opponent || ahead, pct: branchTheirsPct, action: branchStep?.opponentAction, zone: 'PAIR', consumed: branchStep?.opponentDeployMj, harvested: branchStep?.opponentHarvestMj, law: branchStep?.harvestLaw || branchStep?.battery?.harvestLaw }}
+    />
     <div className="sim-compare-row">
       <DriverCompareCard label="SELECTED" code={driver} step={selectedStep} progress={progress} />
       <DriverCompareCard label="AHEAD" code={ahead} step={aheadStep} progress={progress} />
@@ -568,8 +831,9 @@ function RaceFieldHud({ field, driver, playbackLap, playhead, loading, error, ev
   </aside>
 }
 
-function RecordedTrack({ trackmap, frame, drivers, attacker, defender, selectedDrivers, viewMode, branchOverlay }) {
-  const geometry = useMemo(() => projection(trackmap?.points), [trackmap])
+function RecordedTrack({ trackmap, frame, drivers, attacker, defender, selectedDrivers, viewMode, branchOverlay, compact = false }) {
+  const mapHeight = compact ? 400 : 520
+  const geometry = useMemo(() => projection(trackmap?.points, mapHeight, compact ? 36 : 46, trackmap?.rotation), [trackmap, mapHeight, compact])
   const driverByCode = useMemo(() => new Map((drivers ?? []).map((driver) => [driver.driver, driver])), [drivers])
   if (!geometry) return <div className="sim-loading">LOADING RECORDED CIRCUIT GEOMETRY…</div>
   const { project, outline, width, height } = geometry
@@ -581,13 +845,14 @@ function RecordedTrack({ trackmap, frame, drivers, attacker, defender, selectedD
   })).filter((zone) => zone.points.length > 1)
   const markers = (trackmap?.visualOverlay?.markers ?? []).map((marker) => ({ ...marker, point: pointAtDistance(trackmap.points, marker.d) }))
   return <svg className={`sim-track ${viewMode === '3D' ? 'is-3d' : ''}`} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${viewMode} recorded public position replay on circuit map`}>
-    <polyline points={polyline} fill="none" stroke="#14201f" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />
-    <polyline points={polyline} fill="none" stroke="#6f817c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="7 10" opacity=".85" />
+    <polyline points={polyline} fill="none" stroke="#2a3f3b" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+    <polyline points={polyline} fill="none" stroke="#d7e4df" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+    <polyline points={polyline} fill="none" stroke="#5f736e" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 7" opacity=".5" />
     {zones.map((zone) => <polyline key={zone.id} className="sim-straight-zone" points={polylineFor(zone.points)} fill="none" strokeLinecap="round" strokeLinejoin="round" />)}
-    {(trackmap?.corners ?? []).map((corner) => {
+    {(trackmap?.corners ?? []).map((corner, index) => {
       if (corner.x == null || corner.y == null) return null
-      const point = project(corner.x, corner.y)
-      return <g key={corner.n} className="sim-corner" transform={`translate(${point.x},${point.y})`}><circle r="8" /><text y="3">{corner.n}</text></g>
+      const point = offsetCornerLabel(project(corner.x, corner.y), outline)
+      return <g key={`${corner.n}-${index}`} className="sim-corner" transform={`translate(${point.x},${point.y})`}><circle r="8" /><text y="3">{corner.n}</text></g>
     })}
     {markers.map((marker) => {
       if (!marker.point) return null
@@ -607,12 +872,48 @@ function RecordedTrack({ trackmap, frame, drivers, attacker, defender, selectedD
     {branchOverlay && (frame?.cars ?? []).filter((car) => car.driver === branchOverlay.driver || car.driver === branchOverlay.target).map((car) => {
       const point = project(car.x, car.y)
       const isSelected = car.driver === branchOverlay.driver
+      const call = branchOverlay.event && branchOverlay.event !== 'HOLD_PLACE' ? branchOverlay.event : branchOverlay.action
       return <g key={`branch-${car.driver}`} className={`sim-branch-car ${isSelected ? 'ours' : 'target'}`} transform={`translate(${point.x},${point.y})`}>
-        <circle r={isSelected ? 17 : 14} />
-        {isSelected && <><text y="-25">MODEL {branchOverlay.action}</text><text y="28">PASS {Math.round(branchOverlay.probability * 100)}%</text></>}
+        <circle r={isSelected ? 22 : 15} />
+        {isSelected && <><text y="-30">{call === 'TAKE' ? 'OVERTAKE' : call === 'LOST_PLACE' ? 'DEFEND FAILED' : call === 'FAILED_ATTACK' ? 'ATTACK MISS' : call}</text><text y="32">{call === 'TAKE' ? 'PASSED' : call === 'PIT' ? 'REAL PIT' : call === 'SAVE' || call === 'DELAY' ? 'HOLD / REBUILD' : `${Math.round((branchOverlay.convertP ?? branchOverlay.probability) * 100)}% CONVERT`}</text></>}
       </g>
     })}
   </svg>
+}
+
+function TrackPane({
+  title,
+  kicker,
+  tone = 'real',
+  trackmap,
+  frame,
+  drivers,
+  attacker,
+  defender,
+  selectedDrivers,
+  viewMode,
+  branchOverlay,
+  gapRows,
+  gapHeading,
+  compact,
+}) {
+  return <div className={`sim-track-pane is-${tone}`}>
+    <div className="sim-track-pane-head"><span>{title}</span><em>{kicker}</em></div>
+    <div className="sim-track-wrap">
+      <RecordedTrack
+        trackmap={trackmap}
+        frame={frame}
+        drivers={drivers}
+        attacker={attacker}
+        defender={defender}
+        selectedDrivers={selectedDrivers}
+        viewMode={viewMode}
+        branchOverlay={branchOverlay}
+        compact={compact}
+      />
+      <GapLeaderboard rows={gapRows} drivers={drivers} heading={gapHeading} />
+    </div>
+  </div>
 }
 
 function SelectControl({ label, value, onChange, children, disabled = false }) {
@@ -638,6 +939,7 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
   const [frameIndex, setFrameIndex] = useState(0)
   const [playhead, setPlayhead] = useState(0)
   const cursorRef = useRef(0)
+  const seekRef = useRef(null)
   const speedRef = useRef(1)
   const predictionCacheRef = useRef(new Map())
   const branchCacheRef = useRef(new Map())
@@ -703,6 +1005,7 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
   useEffect(() => {
     if (raceReplayUnavailable) {
       cursorRef.current = 0
+      seekRef.current = null
       setFrameIndex(0)
       setPlayhead(0)
       setPlaying(false)
@@ -714,6 +1017,7 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
     if (!selection.lap) return undefined
     let live = true
     cursorRef.current = 0
+    seekRef.current = null
     setFrameIndex(0)
     setPlayhead(0)
     setPlaying(false)
@@ -750,6 +1054,13 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
     const { frames } = replay.data
     const duration = replay.data.window.durationS
     const tick = (now) => {
+      // Honour an explicit lap seek before adding elapsed time. Otherwise a
+      // leftover RAF tick can walk the playhead away from the JUMP lap.
+      if (seekRef.current != null) {
+        cursorRef.current = seekRef.current
+        seekRef.current = null
+        previous = now
+      }
       // 1× is the real elapsed time recorded for the selected driver's lap.
       // Higher settings are exact multiples of that recorded timebase.
       cursorRef.current += ((now - previous) / 1000) * speedRef.current
@@ -808,47 +1119,91 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
   // LAP, not at whichever moment the observed replay happens to be showing.
   // Otherwise choosing (for example) Hadjar at L8 would accidentally use the
   // car ahead of Hadjar at L1 as the model opponent.
-  const branchTime = selectedBranchLap?.startT ?? playbackTime
-  const branchFrame = selectedBranchLap ? (interpolateFrame(frames, branchTime) ?? currentFrame) : currentFrame
-  const branchRaceOrder = recordedRaceOrder(branchFrame, replay.data?.drivers, lapBoundariesByDriver, branchTime)
+  // End of the JUMP lap, not lights-out: start frames are still the grid.
+  const branchTime = selectedBranchLap
+    ? Math.max(Number(selectedBranchLap.startT) || 0, Number(selectedBranchLap.endT) - 0.05)
+    : playbackTime
+  const branchRaceOrder = officialRaceOrder(frames, replay.data?.drivers, lapBoundariesByDriver, branchTime, selectedBranchLap)
+  const liveRaceOrder = officialRaceOrder(frames, replay.data?.drivers, lapBoundariesByDriver, playbackTime, playbackLap)
   const raceControl = raceControlAt(lapBoundariesByDriver, playbackTime)
-  const selectedDriverIndex = branchRaceOrder.findIndex((row) => row.driver === selection.driver)
-  const attackingDriver = selectedDriverIndex > 0 ? branchRaceOrder[selectedDriverIndex - 1].driver : null
-  const defendingDriver = selectedDriverIndex >= 0 && selectedDriverIndex < branchRaceOrder.length - 1 ? branchRaceOrder[selectedDriverIndex + 1].driver : null
-  const selectedDriverRow = selectedDriverIndex >= 0 ? branchRaceOrder[selectedDriverIndex] : null
-  // A selected driver can legitimately be either side of a recorded battle:
-  // attacking the car ahead, or defending from the car behind. The extractor
-  // stores each event from the attacking car's viewpoint, so keep that row for
-  // scoring but re-orient the rollout identity to the driver the user chose.
-  const attackBattle = attackingDriver
-    ? rows.find((row) => row.driver === selection.driver && row.defender === attackingDriver && Number(row.lap) === Number(selection.lap)) ?? null
+  const liveActors = runningOrderNeighbours(liveRaceOrder, selection.driver)
+  const jumpFrameActors = runningOrderNeighbours(branchRaceOrder, selection.driver)
+  // Official lap Position is the pair source for every selected driver.
+  // Lights-out timing frames are still the grid (VER: ANT / NOR). Do not let
+  // that override the end-of-lap classification (VER L1: ANT / PIA).
+  const displayLap = Number(playbackLap?.lap ?? selection.lap)
+  const liveFieldActors = fieldBattleActors(batteryClip.data?.field, selection.driver, displayLap)
+  const fieldActors = fieldBattleActors(batteryClip.data?.field, selection.driver, selection.lap)
+  const jumpActors = fieldActors ?? mergeOfficialActors(jumpFrameActors, null)
+  const livePair = liveFieldActors ?? mergeOfficialActors(liveActors, fieldActors)
+  const attackingRow = livePair?.ahead ?? null
+  const defendingRow = livePair?.behind ?? null
+  const attackingDriver = attackingRow?.driver ?? null
+  const defendingDriver = defendingRow?.driver ?? null
+  const selectedDriverRow = livePair?.us ?? jumpActors?.us ?? null
+  const nextHuntActors = fieldBattleActors(batteryClip.data?.field, selection.driver, Number(selection.lap) + 1)
+  const nextHuntFocus = resolveBattleFocus(nextHuntActors?.us, nextHuntActors?.ahead, nextHuntActors?.behind)
+  const battleFocus = !jumpActors?.us && batteryClip.loading
+    ? { role: null, opponent: null, gapS: null, closeAhead: false, closeBehind: false }
+    : resolveBattleFocus(jumpActors?.us, jumpActors?.ahead, jumpActors?.behind)
+  const jumpAvailable = Boolean(battleFocus.opponent || nextHuntFocus.opponent)
+  const extractedAttack = battleFocus.role === 'ATTACKING' && battleFocus.opponent
+    ? rows.find((row) => row.driver === selection.driver && row.defender === battleFocus.opponent && Number(row.lap) === Number(selection.lap)) ?? null
     : null
-  const defendBattle = defendingDriver
-    ? rows.find((row) => row.driver === defendingDriver && row.defender === selection.driver && Number(row.lap) === Number(selection.lap)) ?? null
+  const extractedDefend = battleFocus.role === 'DEFENDING' && battleFocus.opponent
+    ? rows.find((row) => row.driver === battleFocus.opponent && row.defender === selection.driver && Number(row.lap) === Number(selection.lap)) ?? null
     : null
-  const branchRole = attackBattle ? 'ATTACKING' : defendBattle ? 'DEFENDING' : null
-  const battle = attackBattle ?? defendBattle
-  const modelOpponent = branchRole === 'DEFENDING' ? defendingDriver : attackingDriver
-  const branchFocus = battle
-    ? branchRole === 'DEFENDING'
-      ? {
-          ...battle,
-          // Preserve observed feature orientation for the classifier and the
-          // defensive threat calculation, but make selected/opponent identity
-          // explicit for the future-blind two-car rollout.
-          driver: selection.driver,
-          defender: defendingDriver,
-          position: battle.defenderPosition,
-          defenderPosition: battle.position,
-          selectedRole: 'DEFENDING',
-          sourcePerspective: 'OBSERVED_OPPONENT_ATTACK',
-        }
-      : {
-          ...battle,
-          selectedRole: 'ATTACKING',
-          sourcePerspective: 'OBSERVED_SELECTED_ATTACK',
-        }
-    : null
+  const battle = extractedAttack ?? extractedDefend
+  const branchRole = battleFocus.role
+  const modelOpponent = battleFocus.opponent
+  const opponentRow = branchRaceOrder.find((row) => row.driver === modelOpponent)
+  const opponentField = fieldStepExact(batteryClip.data?.field, modelOpponent, selection.lap)
+  const branchFocus = !modelOpponent ? null : battleFocus.role === 'DEFENDING'
+    ? {
+        ...(extractedDefend || {}),
+        year: selection.year,
+        round: selection.round,
+        session: selection.session,
+        lap: selection.lap,
+        driver: selection.driver,
+        defender: modelOpponent,
+        position: extractedDefend?.defenderPosition ?? selectedDriverRow?.timingPosition,
+        defenderPosition: extractedDefend?.position ?? opponentField?.timingPosition ?? opponentRow?.timingPosition,
+        gapS: battleFocus.gapS ?? extractedDefend?.gapS ?? 0.8,
+        closingRateS: extractedDefend?.closingRateS ?? fieldActors?.closingRateS ?? 0,
+        lapFraction: selection.lap / Math.max(1, totalLaps),
+        selectedRole: 'DEFENDING',
+        sourcePerspective: extractedDefend ? 'OBSERVED_OPPONENT_ATTACK' : 'LIVE_GAP_BATTLE',
+        pitDistorted: Boolean(extractedDefend?.pitDistorted),
+      }
+    : {
+        ...(extractedAttack || {}),
+        year: selection.year,
+        round: selection.round,
+        session: selection.session,
+        lap: selection.lap,
+        driver: selection.driver,
+        defender: modelOpponent,
+        position: extractedAttack?.position ?? selectedDriverRow?.timingPosition,
+        defenderPosition: extractedAttack?.defenderPosition ?? opponentField?.timingPosition ?? opponentRow?.timingPosition,
+        gapS: battleFocus.gapS ?? extractedAttack?.gapS ?? 0.8,
+        closingRateS: extractedAttack?.closingRateS ?? fieldActors?.closingRateS ?? 0,
+        lapFraction: selection.lap / Math.max(1, totalLaps),
+        selectedRole: 'ATTACKING',
+        sourcePerspective: extractedAttack ? 'OBSERVED_SELECTED_ATTACK' : 'LIVE_GAP_BATTLE',
+        pitDistorted: Boolean(extractedAttack?.pitDistorted),
+      }
+  useEffect(() => {
+    const required = [selection.driver]
+    if (modelOpponent) required.push(modelOpponent)
+    if (battleFocus.closeAhead && attackingDriver) required.push(attackingDriver)
+    if (battleFocus.closeBehind && defendingDriver) required.push(defendingDriver)
+    setSelectedDrivers((current) => {
+      const pinned = required.filter((code, index, list) => code && list.indexOf(code) === index)
+      const extras = current.filter((code) => !pinned.includes(code))
+      return [...pinned, ...extras].slice(0, MAX_VISUAL_SELECTIONS)
+    })
+  }, [selection.driver, selection.lap, modelOpponent, battleFocus.closeAhead, battleFocus.closeBehind, attackingDriver, defendingDriver])
   const toggleVisualDriver = (driver) => setSelectedDrivers((current) => {
     if (current.includes(driver)) {
       if (current.length <= 2) return current
@@ -857,30 +1212,116 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
     if (current.length >= MAX_VISUAL_SELECTIONS) return current
     return [...current, driver]
   })
-  const restart = () => { cursorRef.current = 0; setFrameIndex(0); setPlayhead(0); setPlaying(false); setBranchRequest(null); setBranch({ idle: true }); setDisplayMode('OBSERVED') }
-  const jumpToLap = (lap) => {
-    const boundary = driverLapBoundaries.find((entry) => entry.lap === lap)
-    if (!boundary) return
-    cursorRef.current = boundary.startT
-    const index = frames.findIndex((frame) => frame.t >= boundary.startT)
-    setFrameIndex(index < 0 ? Math.max(0, frames.length - 1) : index)
-    setPlayhead(boundary.startT)
-    setPlaying(false)
-    update({ lap })
+  const restart = () => { cursorRef.current = 0; seekRef.current = null; setFrameIndex(0); setPlayhead(0); setPlaying(false); setBranchRequest(null); setBranch({ idle: true }); setDisplayMode('OBSERVED') }
+  const seekPlayheadToLap = (lap, { play = false } = {}) => {
+    const seek = playheadForLap(driverLapBoundaries, frames, lap)
+    if (!seek) return null
+    cursorRef.current = seek.time
+    seekRef.current = seek.time
+    setFrameIndex(seek.index)
+    setPlayhead(seek.time)
+    setPlaying(Boolean(play))
+    return seek
+  }
+  const jumpToLap = (lap, { play = false, keepBranch = false } = {}) => {
+    const seek = playheadForLap(driverLapBoundaries, frames, lap)
+    if (!seek) return null
+    cursorRef.current = seek.time
+    seekRef.current = seek.time
+    setFrameIndex(seek.index)
+    setPlayhead(seek.time)
+    setPlaying(Boolean(play))
+    if (Number(selection.lap) !== seek.lap) {
+      if (!keepBranch) {
+        setBranchRequest(null)
+        setBranch({ idle: true })
+        setDisplayMode('OBSERVED')
+      }
+      update({ lap: seek.lap })
+    }
+    return seek
+  }
+  const actorsAtLap = (lap) => {
+    const field = fieldBattleActors(batteryClip.data?.field, selection.driver, lap)
+    const boundary = driverLapBoundaries.find((entry) => Number(entry.lap) === Number(lap))
+    const time = boundary
+      ? Math.max(Number(boundary.startT) || 0, Number(boundary.endT) - 0.05)
+      : branchTime
+    const order = officialRaceOrder(frames, replay.data?.drivers, lapBoundariesByDriver, time, boundary)
+    return mergeOfficialActors(runningOrderNeighbours(order, selection.driver), field)
   }
   const startPitwolfBranch = (opts = {}) => {
     const forcedFirstAction = mapForcedAction(opts.forcedFirstAction)
     const preferredOpponent = opts.preferredOpponent
     const whatIf = opts.whatIf
-    jumpToLap(selection.lap)
+    const requestedResultLap = Number(opts.resultLap ?? whatIf?.resultLap ?? 0) || null
+    let jumpLap = requestedResultLap || Number(selection.lap)
+    let pack = actorsAtLap(jumpLap)
+    let packFocus = resolveBattleFocus(pack?.us, pack?.ahead, pack?.behind)
+    if (!preferredOpponent && !packFocus.opponent && !requestedResultLap) {
+      const nextLap = Number(selection.lap) + 1
+      const nextPack = actorsAtLap(nextLap)
+      const nextFocus = resolveBattleFocus(nextPack?.us, nextPack?.ahead, nextPack?.behind)
+      if (nextFocus.opponent) {
+        jumpLap = nextLap
+        pack = nextPack
+        packFocus = nextFocus
+      }
+    }
+    const seek = jumpToLap(jumpLap, { play: false, keepBranch: true })
+    jumpLap = Number(seek?.lap ?? jumpLap)
     setDisplayMode('BRANCH')
-    let role = branchRole
-    let opponent = modelOpponent
-    let focus = branchFocus
-    let predictionRow = battle
+    let role = packFocus.role || branchRole
+    let opponent = preferredOpponent || packFocus.opponent || modelOpponent
+    const extractedAtJumpAttack = opponent
+      ? rows.find((row) => row.driver === selection.driver && row.defender === opponent && Number(row.lap) === Number(jumpLap)) ?? null
+      : null
+    const extractedAtJumpDefend = opponent
+      ? rows.find((row) => row.driver === opponent && row.defender === selection.driver && Number(row.lap) === Number(jumpLap)) ?? null
+      : null
+    const selectedAtJump = pack?.us ?? selectedDriverRow
+    const opponentAtJump = (replay.data?.drivers && officialRaceOrder) ? (pack?.ahead?.driver === opponent ? pack.ahead : pack?.behind?.driver === opponent ? pack.behind : null) : null
+    const opponentFieldAtJump = fieldStepExact(batteryClip.data?.field, opponent, jumpLap)
+    let focus = !opponent ? null : (packFocus.role === 'DEFENDING' || (preferredOpponent && extractedAtJumpDefend && !extractedAtJumpAttack))
+      ? {
+          ...(extractedAtJumpDefend || {}),
+          year: selection.year,
+          round: selection.round,
+          session: selection.session,
+          lap: jumpLap,
+          driver: selection.driver,
+          defender: opponent,
+          position: extractedAtJumpDefend?.defenderPosition ?? selectedAtJump?.timingPosition,
+          defenderPosition: extractedAtJumpDefend?.position ?? opponentFieldAtJump?.timingPosition ?? opponentAtJump?.timingPosition,
+          gapS: packFocus.gapS ?? extractedAtJumpDefend?.gapS ?? 0.8,
+          closingRateS: extractedAtJumpDefend?.closingRateS ?? pack?.closingRateS ?? 0,
+          lapFraction: jumpLap / Math.max(1, totalLaps),
+          selectedRole: 'DEFENDING',
+          sourcePerspective: extractedAtJumpDefend ? 'OBSERVED_OPPONENT_ATTACK' : 'LIVE_GAP_BATTLE',
+          pitDistorted: Boolean(extractedAtJumpDefend?.pitDistorted),
+        }
+      : {
+          ...(extractedAtJumpAttack || {}),
+          year: selection.year,
+          round: selection.round,
+          session: selection.session,
+          lap: jumpLap,
+          driver: selection.driver,
+          defender: opponent,
+          position: extractedAtJumpAttack?.position ?? selectedAtJump?.timingPosition,
+          defenderPosition: extractedAtJumpAttack?.defenderPosition ?? opponentFieldAtJump?.timingPosition ?? opponentAtJump?.timingPosition,
+          gapS: packFocus.gapS ?? extractedAtJumpAttack?.gapS ?? 0.8,
+          closingRateS: extractedAtJumpAttack?.closingRateS ?? pack?.closingRateS ?? 0,
+          lapFraction: jumpLap / Math.max(1, totalLaps),
+          selectedRole: 'ATTACKING',
+          sourcePerspective: extractedAtJumpAttack ? 'OBSERVED_SELECTED_ATTACK' : 'LIVE_GAP_BATTLE',
+          pitDistorted: Boolean(extractedAtJumpAttack?.pitDistorted),
+        }
+    if (focus?.selectedRole) role = focus.selectedRole
+    let predictionRow = extractedAtJumpAttack ?? extractedAtJumpDefend ?? focus
     if (preferredOpponent) {
-      const attackRow = rows.find((row) => row.driver === selection.driver && row.defender === preferredOpponent && Number(row.lap) === Number(selection.lap))
-      const defendRow = rows.find((row) => row.driver === preferredOpponent && row.defender === selection.driver && Number(row.lap) === Number(selection.lap))
+      const attackRow = rows.find((row) => row.driver === selection.driver && row.defender === preferredOpponent && Number(row.lap) === Number(jumpLap))
+      const defendRow = rows.find((row) => row.driver === preferredOpponent && row.defender === selection.driver && Number(row.lap) === Number(jumpLap))
       if (attackRow) {
         role = 'ATTACKING'
         opponent = preferredOpponent
@@ -900,22 +1341,23 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
         }
         predictionRow = defendRow
       } else {
-        const us = branchRaceOrder.find((row) => row.driver === selection.driver)
-        const them = branchRaceOrder.find((row) => row.driver === preferredOpponent)
+        const us = pack?.us ?? branchRaceOrder.find((row) => row.driver === selection.driver)
+        const them = (pack?.ahead?.driver === preferredOpponent ? pack.ahead : pack?.behind?.driver === preferredOpponent ? pack.behind : null)
+          ?? branchRaceOrder.find((row) => row.driver === preferredOpponent)
         role = whatIf?.kind === 'DEFEND' ? 'DEFENDING' : 'ATTACKING'
         opponent = preferredOpponent
         focus = {
           year: selection.year,
           round: selection.round,
           session: selection.session,
-          lap: selection.lap,
+          lap: jumpLap,
           driver: selection.driver,
           defender: preferredOpponent,
           position: us?.timingPosition ?? whatIf?.position,
           defenderPosition: them?.timingPosition,
-          gapS: (role === 'DEFENDING' ? whatIf?.gapToBehindS : whatIf?.gapToAheadS) ?? 0.8,
+          gapS: (role === 'DEFENDING' ? whatIf?.gapToBehindS : whatIf?.gapToAheadS) ?? packFocus.gapS ?? 0.8,
           closingRateS: 0,
-          lapFraction: selection.lap / Math.max(1, totalLaps),
+          lapFraction: jumpLap / Math.max(1, totalLaps),
           selectedRole: role,
           sourcePerspective: 'INCIDENT_WHAT_IF',
           pitDistorted: false,
@@ -924,21 +1366,37 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
       }
     }
     if (!opponent || !focus) {
+      setDisplayMode('OBSERVED')
       setBranchRequest(null)
-      setBranch({ error: 'No extracted close battle exists for this driver and recorded lap. PitWolf needs one real public two-car state to start a branch.' })
+      setBranch({ error: 'No 1.0s battle at this lap. JUMP needs the car ahead or the car behind within 1.0s of the selected driver.' })
       return
     }
-    if (whatIf?.driver && whatIf?.otherDriver) {
-      setSelectedDrivers([whatIf.driver, whatIf.otherDriver].filter((code, index, list) => code && list.indexOf(code) === index).slice(0, MAX_VISUAL_SELECTIONS))
-    }
+    setBranch({ loading: true })
+    const required = [selection.driver, opponent]
+    if (battleFocus.closeAhead && attackingDriver) required.push(attackingDriver)
+    if (battleFocus.closeBehind && defendingDriver) required.push(defendingDriver)
+    if (whatIf?.driver) required.push(whatIf.driver)
+    if (whatIf?.otherDriver) required.push(whatIf.otherDriver)
+    setSelectedDrivers((current) => {
+      const pinned = required.filter((code, index, list) => code && list.indexOf(code) === index)
+      const extras = current.filter((code) => !pinned.includes(code))
+      return [...pinned, ...extras].slice(0, MAX_VISUAL_SELECTIONS)
+    })
+    const usModel = fieldStepExact(batteryClip.data?.field, selection.driver, jumpLap)?.modelled
+    const themModel = fieldStepExact(batteryClip.data?.field, opponent, jumpLap)?.modelled
     setBranchRequest({
-      id: `${Date.now()}:${selection.year}:${selection.round}:${selection.session}:${selection.driver}:${opponent}:${role}:${selection.lap}:${forcedFirstAction || 'policy'}`,
+      id: `${Date.now()}:${selection.year}:${selection.round}:${selection.session}:${selection.driver}:${opponent}:${role}:${jumpLap}:${forcedFirstAction || 'policy'}`,
       year: selection.year,
-      round: selection.round,
+      round: Number(selection.round),
       session: selection.session,
       driver: selection.driver,
       defender: opponent,
-      lap: selection.lap,
+      constructedSoc: {
+        ours: Number(usModel?.startMj ?? usModel?.endMj),
+        theirs: Number(themModel?.startMj ?? themModel?.endMj),
+      },
+      lap: jumpLap,
+      watchFromLap: leadInLap(jumpLap),
       role,
       focus,
       predictionRow,
@@ -988,6 +1446,7 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
     const request = incomingWhatIf
     if (!request || whatIfStartedRef.current === request) return
     if (!replay.data?.frames?.length || !decision.data) return
+    if (batteryClip.loading && !batteryClip.data?.field) return
     if (Number(selection.year) !== Number(request.year) || Number(selection.round) !== Number(request.round)) return
     if (selection.driver !== request.driver) return
     const lap = Number(request.lap)
@@ -1000,13 +1459,14 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
     startPitwolfBranch({
       forcedFirstAction: request.call,
       preferredOpponent: request.otherDriver,
+      resultLap: request.resultLap || request.lap,
       whatIf: request,
     })
     setSpeed(2)
     onRequestConsumed?.()
   // Auto-start only after the recorded race for this request has loaded.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incomingWhatIf, replay.data, decision.data, selection.year, selection.round, selection.driver, selection.lap, availableLaps])
+  }, [incomingWhatIf, replay.data, decision.data, batteryClip.loading, batteryClip.data, selection.year, selection.round, selection.driver, selection.lap, availableLaps])
 
   useEffect(() => {
     if (!branchRequest) return undefined
@@ -1017,14 +1477,17 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
     const cachedBranch = branchCacheRef.current.get(branchKey)
     if (cachedBranch) {
       setBranch({ data: cachedBranch })
-      setPlaying(true)
+      seekPlayheadToLap(branchRequest.watchFromLap ?? leadInLap(branchRequest.lap), { play: true })
       return undefined
     }
     const focusRow = branchRequest.focus
     const predictionRow = branchRequest.predictionRow ?? focusRow
-    const leftoverSoc = branchRequest.whatIf
-      ? Math.max(0, Math.min(4, ((Number(branchRequest.whatIf.leftPct) || 70) / 100) * 4))
-      : null
+    const constructedOurs = Number(branchRequest.constructedSoc?.ours)
+    const constructedTheirs = Number(branchRequest.constructedSoc?.theirs)
+    const leftoverOurs = Number.isFinite(constructedOurs)
+      ? constructedOurs
+      : (branchRequest.whatIf ? Math.max(0, Math.min(4, ((Number(branchRequest.whatIf.leftPct) || 70) / 100) * 4)) : null)
+    const leftoverTheirs = Number.isFinite(constructedTheirs) ? constructedTheirs : leftoverOurs
     setBranch({ loading: true })
     Promise.all([
       predictionCacheRef.current.get(pairKey)
@@ -1033,11 +1496,11 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
           predictionCacheRef.current.set(pairKey, payload)
           return payload
         }).catch(() => ({ predictions: [dummyWhatIfPred(branchRequest.forcedFirstAction)] })),
-      leftoverSoc != null
-        ? Promise.resolve({ summary: { socStartMj: leftoverSoc } })
+      leftoverOurs != null
+        ? Promise.resolve({ summary: { socStartMj: leftoverOurs } })
         : fetchEnergyLap(branchRequest.year, branchRequest.round, branchRequest.session, branchRequest.driver, branchRequest.lap).catch(() => null),
-      leftoverSoc != null
-        ? Promise.resolve({ summary: { socStartMj: leftoverSoc } })
+      leftoverTheirs != null
+        ? Promise.resolve({ summary: { socStartMj: leftoverTheirs } })
         : fetchEnergyLap(branchRequest.year, branchRequest.round, branchRequest.session, branchRequest.defender, branchRequest.lap).catch(() => null),
     ]).then(([prediction, attackerEnergy, defenderEnergy]) => {
       const focus = { ...focusRow, pred: prediction.predictions?.[0] || dummyWhatIfPred(branchRequest.forcedFirstAction) }
@@ -1048,6 +1511,10 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
         forcedFirstAction: branchRequest.forcedFirstAction,
         whatIf: branchRequest.whatIf,
         rows: [],
+        year: branchRequest.year,
+        round: branchRequest.round,
+        session: branchRequest.session,
+        location: branchRequest.focus?.location,
         totalLaps: branchRequest.totalLaps,
         finishPositions: branchRequest.finishPositions,
         // The public energy calculation supplies a modelled lap-start SoC.
@@ -1056,7 +1523,6 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
           [branchRequest.driver]: [{ lap: branchRequest.lap, socEndMj: attackerEnergy?.summary?.socStartMj ?? (branchRequest.role === 'DEFENDING' ? focusRow.defenderSoCMj : focusRow.attackerSoCMj) }],
           [branchRequest.defender]: [{ lap: branchRequest.lap, socEndMj: defenderEnergy?.summary?.socStartMj ?? (branchRequest.role === 'DEFENDING' ? focusRow.attackerSoCMj : focusRow.defenderSoCMj) }],
         },
-        year: branchRequest.year,
         regulationEra: Number(branchRequest.year) >= 2026 ? '2026' : '2018_2025',
         ruleContext: branchRequest.ruleContext,
       }).then((tree) => ({ tree, focus, attackerEnergy, defenderEnergy }))
@@ -1064,7 +1530,7 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
       branchCacheRef.current.set(branchKey, data)
       if (live) {
         setBranch({ data })
-        setPlaying(true)
+        seekPlayheadToLap(branchRequest.watchFromLap ?? leadInLap(branchRequest.lap), { play: true })
       }
     }).catch((error) => {
       if (live) setBranch({ error: error.message })
@@ -1074,32 +1540,40 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
 
   const branchMatchesSelection = Boolean(
     branchRequest
-    && branchRequest.year === selection.year
-    && branchRequest.round === selection.round
-    && branchRequest.session === selection.session
+    && Number(branchRequest.year) === Number(selection.year)
+    && Number(branchRequest.round) === Number(selection.round)
+    && String(branchRequest.session) === String(selection.session)
     && branchRequest.driver === selection.driver
-    && branchRequest.lap === selection.lap
+    && Number(branchRequest.lap) === Number(selection.lap)
   )
   const activeBranch = branchMatchesSelection ? branch : { idle: true }
   const branchTree = activeBranch.data?.tree
   const branchStep = branchTree?.path?.[0]
   const branchPrediction = activeBranch.data?.focus?.pred
-  const actionProbabilities = branchPrediction?.probabilities
+  const actionProbabilities = branchTree?.habitProbabilities || branchStep?.habitProbabilities || branchPrediction?.probabilities
   const commandGate = branchTree?.decisionContext?.ruleContext?.application
   const branchStartLap = branchMatchesSelection ? branchRequest.lap : selection.lap
-  const branchStepIndex = Math.max(0, Math.min((branchTree?.path?.length ?? 1) - 1, (playbackLap?.lap ?? branchStartLap) - branchStartLap))
-  const activeBranchStep = branchTree?.path?.[branchStepIndex] ?? null
-  const branchOverlay = displayMode === 'BRANCH' && activeBranchStep && activeBranch.data?.focus?.driver && activeBranch.data?.focus?.defender
+  const watchFromLap = branchMatchesSelection ? (branchRequest.watchFromLap ?? leadInLap(branchStartLap)) : leadInLap(selection.lap)
+  const playbackN = Number(playbackLap?.lap ?? branchStartLap)
+  const beforeBranch = Number.isFinite(playbackN) && Number.isFinite(Number(branchStartLap)) && playbackN < Number(branchStartLap)
+  const branchStepIndex = beforeBranch ? -1 : Math.max(0, Math.min((branchTree?.path?.length ?? 1) - 1, playbackN - Number(branchStartLap)))
+  const activeBranchStep = branchStepIndex >= 0 ? (branchTree?.path?.[branchStepIndex] ?? null) : null
+  const compareActive = displayMode === 'BRANCH'
+  const branchOverlay = compareActive && activeBranchStep && activeBranch.data?.focus?.driver && activeBranch.data?.focus?.defender
     ? {
         driver: activeBranch.data.focus.driver,
         target: activeBranch.data.focus.defender,
         action: activeBranchStep.action,
+        event: activeBranchStep.event,
+        convertP: activeBranchStep.convertP,
         probability: activeBranchStep.probability,
         aheadProbability: activeBranchStep.aheadProbability,
         role: branchTree?.selectedRoleAtJump ?? branchRequest?.role,
         lap: activeBranchStep.lap,
       }
     : null
+  const branchGapRows = applyBranchPairToGapRows(gapRows, branchTree, selection.driver, modelOpponent, playbackLap?.lap)
+  const branchFrame = applyBranchPairToFrame(currentFrame, branchTree, selection.driver, modelOpponent, playbackLap?.lap)
   const branchSocCapacity = Number(branchTree?.energyConfig?.capacityMj)
   const branchSocWithinWindow = branchTree?.path?.every((step) => (
     Number.isFinite(Number(step.ourSoc)) && Number.isFinite(Number(step.defenderSoc))
@@ -1132,16 +1606,16 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
       <SelectControl label="RACE" value={selection.round} onChange={(round) => { const event = events.find((item) => Number(item.round) === Number(round)); const sessions = event?.sessions ?? ['Race']; update({ round: Number(round), session: sessions.includes('Race') ? 'Race' : sessions[0], lap: 1 }) }}>{events.map((item) => <option key={item.round} value={item.round}>{item.name}</option>)}</SelectControl>
       <SelectControl label="SESSION" value={selection.session} onChange={(session) => update({ session, lap: 1 })}>{(event?.sessions ?? ['Race']).map((session) => <option key={session} value={session}>{SESSION_LABELS[session] ?? session}</option>)}</SelectControl>
       <SelectControl label="DRIVER" value={selection.driver} onChange={(driver) => { update({ driver, lap: 1 }); setSelectedDrivers((current) => [driver, ...current.filter((item) => item !== driver)].slice(0, MAX_VISUAL_SELECTIONS)) }}>{roster.map((driver) => <option key={driver} value={driver}>{displayDriverName(infoByDriver.get(driver) ?? { driver })}</option>)}</SelectControl>
-      <AutoRoleControl label="ATTACKING" driver={attackingDriver} info={infoByDriver} emptyLabel={selectedDriverRow ? 'NONE — LEADING' : 'LOADING…'} />
-      <AutoRoleControl label="DEFENDING" driver={defendingDriver} info={infoByDriver} emptyLabel={selectedDriverRow ? 'NONE — LAST' : 'LOADING…'} />
-      <label className="sim-lap-control"><span>JUMP / BRANCH LAP</span><select value={selection.lap} onChange={(event) => update({ lap: Number(event.target.value) })}>{availableLaps.map((lap) => <option key={lap} value={lap}>Lap {lap}</option>)}</select><b>SELECT L{selection.lap} / {totalLaps}</b></label>
-      <div className="sim-jump-control"><span>WHAT-IF BRANCH</span><button type="button" onClick={startPitwolfBranch}>JUMP</button><b>{battle ? `${branchRole} · L${selection.lap} → FLAG` : 'NEEDS A CLOSE CAR'}</b></div>
+      <AutoRoleControl label="ATTACKING" driver={attackingDriver} info={infoByDriver} emptyLabel={selectedDriverRow ? 'NONE — NO CAR AHEAD' : 'LOADING…'} />
+      <AutoRoleControl label="DEFENDING" driver={defendingDriver} info={infoByDriver} emptyLabel={selectedDriverRow ? 'NONE — NO CAR BEHIND' : 'LOADING…'} />
+      <label className="sim-lap-control"><span>JUMP / BRANCH LAP</span><select value={selection.lap} onChange={(event) => jumpToLap(Number(event.target.value))}>{availableLaps.map((lap) => <option key={lap} value={lap}>Lap {lap}</option>)}</select><b>SELECT L{selection.lap} / {totalLaps}</b></label>
+      <div className="sim-jump-control"><span>WHAT-IF BRANCH</span><button type="button" onClick={() => startPitwolfBranch()} disabled={!jumpAvailable}>JUMP</button><b>{branchRole && modelOpponent ? `${branchRole} ${modelOpponent} · ${Number(battleFocus.gapS).toFixed(2)}s · WATCH L${leadInLap(selection.lap)} · GO L${selection.lap} → FLAG` : nextHuntFocus.opponent ? `${nextHuntFocus.role} ${nextHuntFocus.opponent} · NEXT HUNT L${Number(selection.lap) + 1} · WATCH L${selection.lap}` : batteryClip.loading && !fieldActors ? 'LOADING 1.0s BATTLE…' : 'NO 1.0s BATTLE'}</b></div>
     </section>
-    <section className="sim-content">
+    <section className={`sim-content${compareActive ? ' is-split' : ''}`}>
       <aside className="sim-driver-rail">
         <section className="sim-card sim-driver-list">
           <div className="sim-panel-head"><span>DRIVERS</span><em>{selectedDrivers.length} / {roster.length}</em></div>
-          <p className="sim-driver-help">Select up to four cars to show on the track and in the gap board.</p>
+          <p className="sim-driver-help">Our car plus the 1.0s battle pair are selected automatically. You can still add two more cars.</p>
           <div className="sim-driver-options">
             {orderedDrivers.map((driver, index) => {
               const selected = selectedDrivers.includes(driver.driver)
@@ -1157,19 +1631,54 @@ export function SimulationReplayView({ onOpenDashboard, onHome, initialRequest, 
         </section>
       </aside>
       <section className="sim-track-panel">
-        <div className="sim-panel-head"><span>{(event?.name ?? replay.data?.event?.name ?? 'LOADING RACE').toUpperCase()} / TRACK VISUALIZATION</span><span className="sim-track-modes"><span className="sim-branch-mode" role="group" aria-label="Replay mode"><button type="button" className={displayMode === 'OBSERVED' ? 'active' : ''} aria-pressed={displayMode === 'OBSERVED'} onClick={() => setDisplayMode('OBSERVED')}>OBSERVED</button><button type="button" className={displayMode === 'BRANCH' ? 'active' : ''} aria-pressed={displayMode === 'BRANCH'} onClick={() => setDisplayMode('BRANCH')}>PITWOLF BRANCH</button></span><span className="sim-view-toggle" role="group" aria-label="Track visualisation mode"><button type="button" className={viewMode === '2D' ? 'active' : ''} aria-pressed={viewMode === '2D'} onClick={() => setViewMode('2D')}>2D</button><button type="button" className={viewMode === '3D' ? 'active' : ''} aria-pressed={viewMode === '3D'} onClick={() => setViewMode('3D')}>3D</button></span></span></div>
+        <div className="sim-panel-head"><span>{`${(event?.name ?? replay.data?.event?.name ?? 'LOADING RACE').toUpperCase()}${trackmap?.event?.location ? ` · ${String(trackmap.event.location).toUpperCase()}` : ''} / ${compareActive ? 'REAL vs PITWOLF' : 'TRACK VISUALIZATION'}`}</span><span className="sim-track-modes"><span className="sim-branch-mode" role="group" aria-label="Replay mode"><button type="button" className={displayMode === 'OBSERVED' ? 'active' : ''} aria-pressed={displayMode === 'OBSERVED'} onClick={() => setDisplayMode('OBSERVED')}>REAL ONLY</button><button type="button" className={displayMode === 'BRANCH' ? 'active' : ''} aria-pressed={displayMode === 'BRANCH'} onClick={() => setDisplayMode('BRANCH')} disabled={!branchRequest}>COMPARE</button></span><span className="sim-view-toggle" role="group" aria-label="Track visualisation mode"><button type="button" className={viewMode === '2D' ? 'active' : ''} aria-pressed={viewMode === '2D'} onClick={() => setViewMode('2D')}>2D</button><button type="button" className={viewMode === '3D' ? 'active' : ''} aria-pressed={viewMode === '3D'} onClick={() => setViewMode('3D')}>3D</button></span></span></div>
         <div className="sim-status-row"><b>LAP {playbackLap?.lap ?? selection.lap} / {totalLaps}</b><span>{raceTime == null ? 'LOADING SESSION TIME…' : `RACE T+${clock(raceTime)}`}</span><i>{playbackLap?.compound ?? '—'} · {playbackLap?.trackStatus === '1' ? 'GREEN' : 'TRACK STATUS UNCONFIRMED'}</i></div>
         {raceControl && <div className={`sim-race-control is-${raceControl.tone}`}>{raceControl.label}</div>}
-        {displayMode === 'BRANCH' && (branchOverlay ? <div className="sim-branch-banner"><b>{branchRequest?.whatIf ? `WHAT IF ${branchRequest.whatIf.call || branchOverlay.action} · ${branchRequest.whatIf.observedFinish != null ? `P${branchRequest.whatIf.observedFinish}` : ''} → ${branchRequest.whatIf.raceEnd != null ? `P${branchRequest.whatIf.raceEnd}` : 'FLAG'}` : `PITWOLF BRANCH · L${branchOverlay.lap} → FLAG`}</b><span>{branchRequest?.whatIf?.keyTake ? `Important later lap: L${branchRequest.whatIf.keyTake.lap} vs ${branchRequest.whatIf.keyTake.ahead}` : `${branchOverlay.action} this lap`}{branchRequest?.whatIf?.opponent ? ` · ${branchRequest.whatIf.opponent.driver} holds ${Math.round((branchRequest.whatIf.opponent.pHold ?? 0) * 100)}%` : ''} · {Math.round((branchRequest?.whatIf?.netPass ?? branchOverlay.probability) * 100)}% net pass this fight</span><em>{branchRequest?.whatIf?.problem || 'Cars stay on the recorded GPS; the numbers are the what-if finish and later takes.'}</em></div> : <div className="sim-branch-banner is-pending"><b>{incomingWhatIf ? `WHAT IF ${incomingWhatIf.call || 'CALL'} · LOADING` : 'PITWOLF BRANCH'}</b><span>{activeBranch.loading ? 'Freezing this lap, then running the energy call to the flag…' : activeBranch.error ? `Branch unavailable — ${activeBranch.error}` : branchMatchesSelection ? 'Building the two-car energy branch…' : incomingWhatIf ? 'Loading the recorded race, then starting that what-if call…' : 'Pick a lap with a close car, then press JUMP.'}</span><em>The real replay stays on the map; the model only sees this lap’s public state.</em></div>)}
-        <div className="sim-track-wrap">{replay.loading || !trackmap ? <div className="sim-loading">Loading the recorded GPS lap…</div> : replay.error || trackmap.error ? <div className="sim-error">Recorded replay unavailable: {replay.error ?? trackmap.error}</div> : <><RecordedTrack trackmap={trackmap} frame={currentFrame} drivers={replay.data?.drivers} attacker={selection.driver} defender={modelOpponent} selectedDrivers={selectedDrivers} viewMode={viewMode} branchOverlay={branchOverlay} /><GapLeaderboard rows={gapRows} drivers={replay.data?.drivers} /></>}</div>
-        <RaceFieldHud field={batteryClip.data?.field} driver={selection.driver} playbackLap={playbackLap} playhead={playhead} loading={batteryClip.loading} error={batteryClip.error} event={batteryClip.data?.actualRace?.event} />
-        <div className="sim-player"><button type="button" onClick={() => setPlaying((value) => !value)} disabled={!frames.length}>{playing ? 'Ⅱ PAUSE' : '▷ PLAY FULL RACE'}</button><button type="button" onClick={restart} disabled={!frames.length}>↻ RESTART</button><input aria-label="Replay frame" type="range" min="0" max={Math.max(0, frames.length - 1)} value={frameIndex} onChange={(event) => { const index = Number(event.target.value); const time = frames[index]?.t ?? 0; cursorRef.current = time; setFrameIndex(index); setPlayhead(time); setPlaying(false) }} /><span className="sim-playback-lap">PLAYING L{playbackLap?.lap ?? '—'} · {branchMatchesSelection ? `BRANCH L${branchStartLap} → FLAG` : 'NO BRANCH'}</span><div className="sim-speeds">{SPEEDS.map((value) => <button key={value} type="button" className={speed === value ? 'active' : ''} onClick={() => setSpeed(value)}>{value}×</button>)}</div></div>
+        {compareActive && (branchOverlay || beforeBranch ? <div className="sim-branch-banner"><b>{`WATCH L${watchFromLap} · TAKE / HOLD ON L${branchStartLap} → FLAG${branchTree?.branchFinishPosition ? ` · P${branchTree.branchFinishPosition}` : ''}${branchTree?.goLap ? ` · GO L${branchTree.goLap}` : ''}`}</b><span>{beforeBranch ? `Approach lap — recorded order. The model take is on L${branchStartLap}.` : activeBranchStep?.event === 'TAKE' ? `PITWOLF TOOK ${branchOverlay.target} this lap` : activeBranchStep?.event === 'PIT' ? 'REAL PIT THIS LAP' : `PITWOLF ${branchOverlay?.action}${branchOverlay?.role === 'DEFENDING' ? ' TO DEFEND' : ' TO ATTACK'} · convert ${Math.round((activeBranchStep?.convertP ?? branchOverlay?.probability) * 100)}%`} · u {branchTree?.driverScore == null ? '—' : Number(branchTree.driverScore).toFixed(2)}</span><em>Playback starts one lap before the JUMP so you see the pair before the model result. Left is the recorded race. Right swaps those two cars only after the model take lap.</em></div> : <div className="sim-branch-banner is-pending"><b>{incomingWhatIf ? `WHAT IF ${incomingWhatIf.call || 'CALL'} · LOADING` : 'SPLIT COMPARE'}</b><span>{activeBranch.loading ? 'Left is the real race. Right will show the PitWolf call from this lap…' : activeBranch.error ? `Branch unavailable — ${activeBranch.error}` : 'Building the model race branch…'}</span><em>After JUMP both maps play the same recorded time. The right map owns the selected car’s call.</em></div>)}
+        {!trackmap || (trackmap.loading && !trackmap.points?.length) ? <div className="sim-loading">Loading the recorded GPS lap…</div> : trackmap.error && !trackmap.points?.length ? <div className="sim-error">Circuit map unavailable: {trackmap.error}</div> : compareActive ? <div className="sim-compare-tracks">
+          <TrackPane
+            title="REAL RACE"
+            kicker={`RECORDED · L${playbackLap?.lap ?? selection.lap}`}
+            tone="real"
+            trackmap={trackmap}
+            frame={currentFrame}
+            drivers={replay.data?.drivers}
+            attacker={selection.driver}
+            defender={modelOpponent}
+            selectedDrivers={selectedDrivers}
+            viewMode={viewMode}
+            compact
+            gapRows={gapRows}
+            gapHeading="RECORDED TIMING"
+          />
+          <TrackPane
+            title="PITWOLF"
+            kicker={beforeBranch ? `APPROACH · RESULT L${branchStartLap}` : branchOverlay ? `${branchOverlay.action}${branchTree?.goLap ? ` · GO L${branchTree.goLap}` : ''} · FROM L${branchStartLap}` : activeBranch.loading ? 'SCORING FROM THIS LAP…' : 'AWAITING MODEL'}
+            tone="model"
+            trackmap={trackmap}
+            frame={branchFrame}
+            drivers={replay.data?.drivers}
+            attacker={selection.driver}
+            defender={modelOpponent}
+            selectedDrivers={selectedDrivers}
+            viewMode={viewMode}
+            branchOverlay={branchOverlay}
+            compact
+            gapRows={branchGapRows}
+            gapHeading="MODEL PAIR ORDER"
+          />
+        </div> : <div className="sim-track-wrap"><RecordedTrack trackmap={trackmap} frame={currentFrame} drivers={replay.data?.drivers} attacker={selection.driver} defender={modelOpponent} selectedDrivers={selectedDrivers} viewMode={viewMode} />{replay.error ? <div className="sim-error sim-replay-overlay">Car positions unavailable: {replay.error}</div> : <GapLeaderboard rows={gapRows} drivers={replay.data?.drivers} />}</div>}
+        <RaceFieldHud field={batteryClip.data?.field} driver={selection.driver} playbackLap={playbackLap} playhead={playhead} loading={batteryClip.loading} error={batteryClip.error} event={batteryClip.data?.actualRace?.event} branchStep={activeBranchStep} compareActive={compareActive} energyPersonality={branchTree?.energyPersonality} branchCapacity={Number.isFinite(branchSocCapacity) ? branchSocCapacity : 4} modelOpponent={modelOpponent} />
+        <div className="sim-player"><button type="button" onClick={() => setPlaying((value) => !value)} disabled={!frames.length}>{playing ? 'Ⅱ PAUSE' : compareActive ? '▷ PLAY FROM APPROACH' : '▷ PLAY FULL RACE'}</button><button type="button" onClick={restart} disabled={!frames.length}>↻ RESTART</button><input aria-label="Replay frame" type="range" min="0" max={Math.max(0, frames.length - 1)} value={frameIndex} onChange={(event) => { const index = Number(event.target.value); const time = frames[index]?.t ?? 0; cursorRef.current = time; seekRef.current = time; setFrameIndex(index); setPlayhead(time); setPlaying(false) }} /><span className="sim-playback-lap">{compareActive ? `L${playbackLap?.lap ?? '—'} · LEFT REAL · RIGHT PITWOLF FROM L${watchFromLap} · RESULT L${branchStartLap}` : `PLAYING L${playbackLap?.lap ?? '—'} · NO BRANCH`}</span><div className="sim-speeds">{SPEEDS.map((value) => <button key={value} type="button" className={speed === value ? 'active' : ''} onClick={() => setSpeed(value)}>{value}×</button>)}</div></div>
       </section>
       <aside className="sim-side">
-        <RaceOrderBoard rows={raceOrder} />
-        <section className="sim-card"><div className="sim-panel-head"><span>SELECTED DRIVER STATE</span><em>RECORDED INPUT · L{selection.lap}</em></div><div className="sim-pair"><div><span>DRIVER</span><b>{selection.driver}</b><em>{selectedDriverRow ? `P${selectedDriverRow.timingPosition}` : '—'}</em></div><div><span>ATTACKING</span><b>{attackingDriver ?? 'NONE'}</b><em>{attackingDriver ? `P${branchRaceOrder.find((row) => row.driver === attackingDriver)?.timingPosition ?? '—'}` : 'LEADING'}</em></div></div><div className="sim-facts"><span>DEFENDING AGAINST <b>{defendingDriver ?? 'NONE — LAST'}</b></span>{battle ? <><span>MODEL ROLE <b>{branchRole}</b></span><span>RELATIVE SPEED <b>{battle.speedDeltaKph == null ? '—' : `${battle.speedDeltaKph > 0 ? '+' : ''}${battle.speedDeltaKph} km/h`}</b></span><span>TYRES <b>{battle.attackerCompound ?? '—'} / {battle.defenderCompound ?? '—'}</b></span><span>MODEL STATE <b>{activeBranch.loading ? 'SCORING' : branchTree ? 'MODELLED BRANCH READY' : activeBranch.error ? 'UNAVAILABLE' : 'AWAITING JUMP'}</b></span></> : <span>MODEL STATE <b>{attackingDriver || defendingDriver ? 'NO DETECTED BATTLE AT THIS LAP' : 'NO ADJACENT CAR'}</b></span>}</div>{!battle && <p className="sim-note">The car ahead and behind come from the real running order at this lap; JUMP needs one of those close battles.</p>}</section>
-        <section className="sim-card sim-branch"><div className="sim-panel-head"><span>PITWOLF RACE BRANCH</span><em>{branchTree ? `L${branchTree.startLap} → L${branchTree.finishLap}` : 'AWAITING JUMP'}</em></div>{activeBranch.loading ? <p className="sim-note">Freeze this lap’s gap and energy, then decide each later lap without reading the rest of the race.</p> : activeBranch.error ? <p className="sim-note sim-error">This branch could not be scored: {activeBranch.error}</p> : branchTree && branchStep && actionProbabilities ? <><div className="sim-action"><b>{branchStep.action}</b><span>{branchStep.forced || branchRequest?.forcedFirstAction ? 'FORCED FIRST LAP' : 'MODEL FIRST LAP'}</span><em>{branchRequest?.whatIf ? `They spent ${branchRequest.whatIf.theyDid || '—'}; the branch now spends ${branchStep.action} on this lap` : `${Math.round((actionProbabilities[branchStep.action] ?? 0) * 100)}% model confidence for this first action`}</em></div><div className="sim-probabilities">{['ATTACK', 'DELAY', 'SAVE'].map((action) => <span key={action}><i className={`sim-prob-${action.toLowerCase()}`} style={{ width: `${Math.round((actionProbabilities[action] ?? 0) * 100)}%` }} />{action} <b>{Math.round((actionProbabilities[action] ?? 0) * 100)}%</b></span>)}</div><div className="sim-facts"><span>MODEL ROLE AT JUMP <b>{branchTree.selectedRoleAtJump ?? branchRequest?.role ?? '—'}</b></span><span>MODELLED SoC AT JUMP <b>{branchTree.tree.ourSoc.toFixed(2)} / {branchTree.tree.defenderSoc.toFixed(2)} MJ</b></span><span>AFTER FIRST ACTION <b>{branchStep.ourSoc.toFixed(2)} / {branchStep.defenderSoc.toFixed(2)} MJ</b></span><span>CHANCE THEY STAY AHEAD AT FLAG <b>{Math.round((branchTree.modelledPairAheadProbabilityAtFlag ?? branchTree.path.at(-1)?.aheadProbability ?? 0) * 100)}%</b></span><span>OPPONENT RESPONSE <b>{branchStep.opponentAction}</b></span></div><ol className="sim-branch-log">{(branchTree.actionChanges?.length ? branchTree.actionChanges : branchTree.path).slice(0, 12).map((step, index) => <li key={`${step.lap}-${index}`}><b>L{step.lap}</b><span>{step.action}{step.opponentAction ? ` · opponent ${step.opponentAction}` : ' · policy change'}</span><em>{step.aheadProbability == null ? 'ROLLOUT' : `${Math.round(step.aheadProbability * 100)}% ahead · ${step.ourSoc.toFixed(2)} MJ`}</em></li>)}</ol>{branchRequest?.whatIf?.takes?.length ? <ol className="sim-branch-log">{branchRequest.whatIf.takes.map((item, index) => <li key={`${item.lap}-${index}`}><b>L{item.lap}</b><span>{item.note}{item.oppDid ? ` · ${item.ahead || 'ahead'} ${item.oppDid}` : ''}</span><em>{item.pPass == null ? item.kind : `${Math.round(item.pPass * 100)}% net${item.pOppHold == null ? '' : ` · they hold ${Math.round(item.pOppHold * 100)}%`}`}</em></li>)}</ol> : null}<p className="sim-note">{branchRequest?.whatIf?.raceEnd != null ? `Real finish P${branchRequest.whatIf.observedFinish ?? '—'} → what-if P${branchRequest.whatIf.raceEnd}. Cars stay on the recorded GPS; the list is the later takes.` : 'Only this pair is modelled from the JUMP freeze-frame; later timing, pits, and the rest of the grid are not replayed.'}</p></> : <p className="sim-note">Pick a recorded lap with a close car, then press JUMP to run energy and pass chance to the flag.</p>}</section>
-        {branchTree && <section className="sim-card sim-comparison"><div className="sim-panel-head"><span>REAL vs MODEL AT THE FLAG</span><em>TWO CARS ONLY</em></div><div className="sim-facts"><span>MODEL: WHO IS AHEAD <b>{branchTree.modelledPairAheadAtFlag ? 'SELECTED DRIVER AHEAD' : 'SELECTED DRIVER BEHIND'}</b></span><span>MODEL CHANCE THEY STAY AHEAD <b>{Math.round((branchTree.modelledPairAheadProbabilityAtFlag ?? 0) * 100)}%</b></span><span>REAL RACE: WHO WAS AHEAD <b>{branchTree.actualPairAheadAtFlag ? 'SELECTED DRIVER AHEAD' : 'SELECTED DRIVER BEHIND'}</b></span><span>REAL SELECTED FINISH <b>{branchTree.actualFinishPosition ? `P${branchTree.actualFinishPosition}` : 'NOT CLASSIFIED'}</b></span><span>MODELLED ENERGY WINDOW <b>{branchSocWithinWindow ? `WITHIN 0–${branchSocCapacity.toFixed(0)} MJ` : 'OUTSIDE MODEL WINDOW'}</b></span><span>FIA COMMAND GATE <b>{commandGate ?? 'ANALYSIS ONLY'}</b></span></div><p className="sim-note">{branchTree.finishComparison?.pairOrderMatchesObserved ? 'At the flag, the model keeps the same who-is-ahead as the real race for this pair.' : 'At the flag, the model swaps who is ahead of this pair versus the real race.'} That is two cars only — not a new finishing position for the whole grid.</p></section>}
+        <RaceOrderBoard
+          rows={displayMode === 'BRANCH' ? applyBranchPairOrder(raceOrder, branchTree, selection.driver, modelOpponent, playbackLap?.lap) : raceOrder}
+          branched={displayMode === 'BRANCH' && Boolean(branchTree?.path?.length)}
+        />
+        <section className="sim-card"><div className="sim-panel-head"><span>SELECTED DRIVER STATE</span><em>OFFICIAL ORDER · L{playbackLap?.lap ?? selection.lap}</em></div><div className="sim-pair"><div><span>DRIVER</span><b>{selection.driver}</b><em>{selectedDriverRow ? `P${selectedDriverRow.timingPosition}` : '—'}</em></div><div><span>ATTACKING</span><b>{attackingDriver ?? 'NONE'}</b><em>{attackingDriver ? `${isCloseBattle(selectedDriverRow?.gapToAheadS) ? `${Number(selectedDriverRow.gapToAheadS).toFixed(2)}s` : `P${attackingRow?.timingPosition ?? '—'}`}` : 'NO CAR AHEAD'}</em></div></div><div className="sim-facts"><span>DEFENDING AGAINST <b>{defendingDriver ?? 'NONE — NO CAR BEHIND'}</b></span>{branchRole ? <><span>MODEL FOCUS <b>{branchRole} {modelOpponent} · {Number(battleFocus.gapS).toFixed(2)}s</b></span>{battleFocus.closeAhead && battleFocus.closeBehind ? <span>BOTH SIDES CLOSE <b>FRONT WINS FOCUS</b></span> : null}{battle ? <><span>RELATIVE SPEED <b>{battle.speedDeltaKph == null ? '—' : `${battle.speedDeltaKph > 0 ? '+' : ''}${battle.speedDeltaKph} km/h`}</b></span><span>TYRES <b>{battle.attackerCompound ?? '—'} / {battle.defenderCompound ?? '—'}</b></span></> : null}<span>MODEL STATE <b>{activeBranch.loading ? 'SCORING' : branchTree ? 'MODELLED BRANCH READY' : activeBranch.error ? 'UNAVAILABLE' : 'AWAITING JUMP'}</b></span></> : <span>MODEL STATE <b>{attackingDriver || defendingDriver ? 'NO 1.0s BATTLE AT THIS LAP' : 'NO ADJACENT CAR'}</b></span>}</div>{!branchRole && <p className="sim-note">Ahead and behind come from the real running order. JUMP starts only if one of those cars is within 1.0s. If both are, the model fights the car ahead.</p>}</section>
+        <section className="sim-card sim-branch"><div className="sim-panel-head"><span>PITWOLF RACE BRANCH</span><em>{branchTree ? `L${branchTree.startLap} → L${branchTree.finishLap}` : 'AWAITING JUMP'}</em></div>{activeBranch.loading ? <p className="sim-note">Freeze this lap, then the model runs the selected car to the flag. Only real pit stops are read after this.</p> : activeBranch.error ? <p className="sim-note sim-error">This branch could not be scored: {activeBranch.error}</p> : branchTree && branchStep && actionProbabilities ? <><div className="sim-action"><b>{branchStep.action}</b><span>{branchStep.forced || branchRequest?.forcedFirstAction ? 'FORCED FIRST LAP' : 'MODEL FIRST LAP'}</span><em>{branchRequest?.whatIf ? `They spent ${branchRequest.whatIf.theyDid || '—'}; the branch now spends ${branchStep.action} on this lap` : `${Math.round((actionProbabilities[branchStep.action] ?? 0) * 100)}% model confidence for this first action`}</em></div><div className="sim-probabilities">{['ATTACK', 'DELAY', 'SAVE'].map((action) => <span key={action}><i className={`sim-prob-${action.toLowerCase()}`} style={{ width: `${Math.round((actionProbabilities[action] ?? 0) * 100)}%` }} />{action} <b>{Math.round((actionProbabilities[action] ?? 0) * 100)}%</b></span>)}</div><div className="sim-facts"><span>MODEL ROLE AT JUMP <b>{branchTree.selectedRoleAtJump ?? branchRequest?.role ?? '—'}</b></span><span>MODELLED SoC AT JUMP <b>{branchTree.tree.ourSoc.toFixed(2)} / {branchTree.tree.defenderSoc.toFixed(2)} MJ</b></span><span>AFTER FIRST ACTION <b>{branchStep.ourSoc.toFixed(2)} / {branchStep.defenderSoc.toFixed(2)} MJ</b></span><span>OPPONENT WILL USE <b>{branchStep.opponentAction}{branchStep.opponentDeployMj == null ? '' : ` · ${Number(branchStep.opponentDeployMj).toFixed(2)} MJ`}</b></span><span>DRIVER SCORE u <b>{branchTree.driverScore == null ? '—' : Number(branchTree.driverScore).toFixed(2)}</b></span><span>THEIR u <b>{branchTree.opponentScore == null ? '—' : Number(branchTree.opponentScore).toFixed(2)}</b></span>{branchTree.goLap ? <span>PLANNED GO LAP <b>L{branchTree.goLap}</b></span> : null}<span>OUR HUNT DUMP <b>{branchTree.energyPersonality?.overtake?.attackRate == null ? '—' : `${Math.round(branchTree.energyPersonality.overtake.attackRate * 100)}%`}</b></span><span>OUR BATTLE DUMP <b>{branchTree.energyPersonality?.battle?.attackRate == null ? '—' : `${Math.round(branchTree.energyPersonality.battle.attackRate * 100)}%`}</b></span><span>OUR OPEN REBUILD <b>{branchTree.energyPersonality?.open?.saveRate == null ? '—' : `${Math.round(branchTree.energyPersonality.open.saveRate * 100)}%`}</b></span><span>LOW-LEFT SAVE <b>{branchTree.energyPersonality?.leftover?.lowSaveRate == null ? '—' : `${Math.round(branchTree.energyPersonality.leftover.lowSaveRate * 100)}%`}</b></span><span>THEIR BATTLE DUMP <b>{branchTree.opponentEnergyPersonality?.battle?.attackRate == null ? '—' : `${Math.round(branchTree.opponentEnergyPersonality.battle.attackRate * 100)}%`}</b></span><span>PASS AFTER BATTERY <b>{Math.round((branchStep.probability ?? 0) * 100)}%</b></span><span>CONVERT P × u <b>{Math.round((branchStep.convertP ?? 0) * 100)}%</b></span><span>THIS LAP <b>{branchStep.event || branchStep.action}</b></span><span>BRANCH AHEAD AT FLAG <b>{branchTree.modelledPairAheadAtFlag ? 'SELECTED' : 'OPPONENT'}</b></span></div><ol className="sim-branch-log">{(branchTree.takes?.length ? branchTree.takes : (branchTree.actionChanges?.length ? branchTree.actionChanges : branchTree.path).filter((step) => step.event && step.event !== 'HOLD_PLACE')).slice(0, 12).map((step, index) => <li key={`${step.lap}-${index}`}><b>L{step.lap}</b><span>{step.note || `${step.event || step.action}${step.opponentAction ? ` · opponent ${step.opponentAction}` : ''}`}</span><em>{step.pPass != null ? `${Math.round(step.pPass * 100)}% convert · u ${Number(step.u ?? branchTree.driverScore ?? 0).toFixed(2)}` : (step.aheadProbability == null ? (step.event || 'ROLLOUT') : `${Math.round(step.aheadProbability * 100)}% ahead · ${Number(step.ourSoc ?? 0).toFixed(2)} MJ`)}</em></li>)}</ol><p className="sim-note">{`Energy habits are 2026 constructed C5.2 leftover per driver per track, hunt/battle/open and leftover bins, this GP stripped — not team battery. u ${branchTree.driverScore == null ? '—' : Number(branchTree.driverScore).toFixed(2)} is ${selection.driver}’s 2018–2026 take rate. Real pits used: ${(branchTree.pitLaps?.[selection.driver] || []).map((lap) => `L${lap}`).join(' ') || 'none'}. When the pair order flips, those two cars swap recorded places on the right map. Everyone else stays on recorded GPS.`}</p></> : <p className="sim-note">Pick a recorded lap with a close car, then press JUMP to run energy and pass chance to the flag.</p>}</section>
+        {branchTree && <section className="sim-card sim-comparison"><div className="sim-panel-head"><span>REAL vs MODEL BATTLE</span><em>HOLD LAPS FIRST</em></div><div className="sim-facts"><span>MODEL HOLD LAPS AHEAD <b>{branchTree.holdComparison?.modelledAheadLaps ?? '—'}</b></span><span>REAL HOLD LAPS AHEAD <b>{branchTree.holdComparison?.observedAheadLaps ?? '—'}</b></span><span>HOLD DELTA <b>{branchTree.holdComparison?.holdDelta == null ? '—' : `${branchTree.holdComparison.holdDelta > 0 ? '+' : ''}${branchTree.holdComparison.holdDelta}`}</b></span><span>MODEL SUCCESS <b>{branchTree.holdComparison?.majorSuccess ? 'MAJOR — BETTER PAIR RESULT' : branchTree.holdComparison?.success ? 'SUCCESS — HELD LONGER' : 'NO HOLD GAIN'}</b></span><span>MODEL: WHO IS AHEAD AT FLAG <b>{branchTree.modelledPairAheadAtFlag ? 'SELECTED DRIVER AHEAD' : 'SELECTED DRIVER BEHIND'}</b></span><span>REAL: WHO WAS AHEAD AT FLAG <b>{branchTree.actualPairAheadAtFlag ? 'SELECTED DRIVER AHEAD' : 'SELECTED DRIVER BEHIND'}</b></span><span>REAL SELECTED FINISH <b>{branchTree.actualFinishPosition ? `P${branchTree.actualFinishPosition}` : 'NOT CLASSIFIED'}</b></span><span>MODELLED ENERGY WINDOW <b>{branchSocWithinWindow ? `WITHIN 0–${branchSocCapacity.toFixed(0)} MJ` : 'OUTSIDE MODEL WINDOW'}</b></span></div><p className="sim-note">{branchTree.holdComparison?.majorSuccess ? 'Major success: the branch still has the place when the classified pair did not.' : branchTree.holdComparison?.success ? 'Success: the branch held this pair longer than the recorded race. That is enough. A better classified pair result would be major.' : 'Attack means take earlier than the race, then delay their re-pass. Defence means delay the lap they passed us. More hold laps is a success; a better pair result than the race is major.'} The car we pass keeps attacking. Loss of lead can still happen. Two cars only.</p></section>}
         <section className="sim-card"><div className="sim-panel-head"><span>TRACK MARKERS</span><em>PROVENANCE</em></div><div className="sim-facts"><span>CARS ON MAP <b>{currentFrame?.cars?.length ?? 0}</b></span><span>CIRCUIT SOURCE <b>PUBLIC GPS / TELEMETRY</b></span><span>CORNER SOURCE <b>{trackmap?.cornerSource?.includes('fastf1-circuit-info') ? 'NUMBERED CIRCUIT DATA' : trackmap?.cornerSource ? 'FALLBACK CIRCUIT DATA' : 'NOT LOADED'}</b></span><span>TURN / ZONE OVERLAY <b>{visualOverlay?.source === 'USER_VISUAL_TURN_REFERENCE' ? 'VISUAL REFERENCE' : 'NOT LOADED'}</b></span><span>ZONE COMMAND GATE <b>ANALYSIS ONLY</b></span></div><p className="sim-note">Corner numbers sit on the recorded GPS map; they are not official FIA detection or activation lines.</p></section>
       </aside>
     </section>

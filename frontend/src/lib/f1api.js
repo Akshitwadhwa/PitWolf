@@ -33,7 +33,7 @@ const memoryCache = new Map()
 // v33 separates the current analysis-row scoring response from older browser
 // sessions that stored an incomplete prediction payload.  Those old payloads
 // made the Strategy page mistake a model-score failure for "no battle".
-const CACHE_PREFIX = 'pitwolf:api:v41:'
+const CACHE_PREFIX = 'pitwolf:api:v54:'
 
 function storageGet(key) {
   try {
@@ -181,6 +181,14 @@ export function fetchRecommend(body) {
 
 export function fetchRecommendReport() {
   return fetchJson('/api/f1/recommend-report')
+}
+
+export function fetchModelDiff() {
+  return fetchCached('/api/f1/model-diff', 10 * 60 * 1000)
+}
+
+export function fetchModelsResult() {
+  return fetchCached('/api/f1/models-result', 10 * 60 * 1000)
 }
 
 export function fetchStrategyStory({ year, round, session = 'R', driver }) {

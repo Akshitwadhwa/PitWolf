@@ -61,22 +61,40 @@ def lap_window(session, driver, lap_number):
 
 def driver_metadata(session):
     metadata = {}
-    for _, result in session.results.iterrows():
-        number = clean(str(result.get('DriverNumber')))
-        abbreviation = clean(result.get('Abbreviation'))
-        if not number or not abbreviation:
-            continue
-        metadata[number] = {
-            'driver': abbreviation,
-            'name': clean(result.get('BroadcastName')) or clean(result.get('FullName')) or abbreviation,
-            'team': clean(result.get('TeamName')),
-            'color': as_color(result.get('TeamColor')),
-            'classifiedPosition': clean(str(result.get('ClassifiedPosition'))),
-            # This is used only before a driver has a timing position for an
-            # active lap. It is deliberately distinct from the final race
-            # classification above.
-            'gridPosition': int(grid) if (grid := clean(result.get('GridPosition'))) not in (None, 0) else None,
-        }
+    results = session.results
+    if results is not None and not results.empty:
+        for _, result in results.iterrows():
+            number = clean(str(result.get('DriverNumber')))
+            abbreviation = clean(result.get('Abbreviation'))
+            if not number or not abbreviation:
+                continue
+            metadata[number] = {
+                'driver': abbreviation,
+                'name': clean(result.get('BroadcastName')) or clean(result.get('FullName')) or abbreviation,
+                'team': clean(result.get('TeamName')),
+                'color': as_color(result.get('TeamColor')),
+                'classifiedPosition': clean(str(result.get('ClassifiedPosition'))),
+                # This is used only before a driver has a timing position for an
+                # active lap. It is deliberately distinct from the final race
+                # classification above.
+                'gridPosition': int(grid) if (grid := clean(result.get('GridPosition'))) not in (None, 0) else None,
+            }
+    laps = session.laps
+    if laps is not None and not laps.empty:
+        unique = laps.drop_duplicates('DriverNumber')
+        for _, row in unique.iterrows():
+            number = clean(str(row.get('DriverNumber')))
+            abbreviation = clean(row.get('Driver'))
+            if not number or not abbreviation or number in metadata:
+                continue
+            metadata[number] = {
+                'driver': abbreviation,
+                'name': abbreviation,
+                'team': clean(row.get('Team')),
+                'color': None,
+                'classifiedPosition': None,
+                'gridPosition': None,
+            }
     return metadata
 
 
@@ -97,6 +115,64 @@ def prepared_position_streams(session, metadata):
             continue
         streams.append((info, times[valid_values], xs[valid_values], ys[valid_values]))
     return streams
+
+
+def prepared_telemetry_streams(session, metadata):
+    """Last-resort XY from lap telemetry when the public position stream is missing."""
+    laps = session.laps
+    if laps is None or laps.empty:
+        return []
+    by_number = {number: info for number, info in metadata.items()}
+    streams = []
+    for number, info in by_number.items():
+        driver_laps = laps[laps['Driver'] == info['driver']]
+        times, xs, ys = [], [], []
+        for _, lap in driver_laps.iterrows():
+            try:
+                tel = lap.get_telemetry()
+            except Exception:
+                continue
+            if tel is None or 'X' not in tel.columns or 'Y' not in tel.columns:
+                continue
+            tel = tel.dropna(subset=['X', 'Y'])
+            if tel.empty:
+                continue
+            if 'SessionTime' in tel.columns:
+                sample_times = tel['SessionTime'].dt.total_seconds().to_numpy(dtype=float)
+            else:
+                start = seconds(lap.get('LapStartTime'))
+                if start is None or 'Time' not in tel.columns:
+                    continue
+                sample_times = start + tel['Time'].dt.total_seconds().to_numpy(dtype=float)
+            times.append(sample_times)
+            xs.append(tel['X'].to_numpy(dtype=float))
+            ys.append(tel['Y'].to_numpy(dtype=float))
+        if not times:
+            continue
+        all_times = np.concatenate(times)
+        all_xs = np.concatenate(xs)
+        all_ys = np.concatenate(ys)
+        order = np.argsort(all_times)
+        if len(order) < 2:
+            continue
+        streams.append((info, all_times[order], all_xs[order], all_ys[order]))
+    return streams
+
+
+def load_replay_session(year, round_number, session_name):
+    event = fastf1.get_event(year, round_number)
+    session = event.get_session(session_name)
+    session.load(laps=True, telemetry=True, weather=False, messages=False)
+    metadata = driver_metadata(session)
+    streams = prepared_position_streams(session, metadata)
+    if not streams:
+        fastf1.Cache.offline_mode(False)
+        session.load(laps=True, telemetry=True, weather=False, messages=False)
+        metadata = driver_metadata(session)
+        streams = prepared_position_streams(session, metadata)
+    if not streams:
+        streams = prepared_telemetry_streams(session, metadata)
+    return event, session, metadata, streams
 
 
 def parse_timing_gap(value):
@@ -264,9 +340,7 @@ def build_full_race_replay(year, round_number, session_name):
     """
     fastf1.Cache.enable_cache(str(CACHE_DIR))
     fastf1.Cache.offline_mode(True)
-    event = fastf1.get_event(year, round_number)
-    session = event.get_session(session_name)
-    session.load(laps=True, telemetry=True, weather=False, messages=False)
+    event, session, metadata, streams = load_replay_session(year, round_number, session_name)
 
     usable_laps = session.laps.dropna(subset=['LapStartTime', 'Time'])
     if usable_laps.empty:
@@ -281,8 +355,6 @@ def build_full_race_replay(year, round_number, session_name):
     if end_s <= start_s:
         raise ValueError('invalid full replay session-time bounds')
 
-    metadata = driver_metadata(session)
-    streams = prepared_position_streams(session, metadata)
     timing_positions = prepared_timing_positions(session, metadata)
     if not streams:
         raise ValueError('no public position streams available for this session')
@@ -332,9 +404,7 @@ def build_replay_window(year, round_number, session_name, driver, lap_number):
     # fetch for a cache-backed historical session.
     fastf1.Cache.enable_cache(str(CACHE_DIR))
     fastf1.Cache.offline_mode(True)
-    event = fastf1.get_event(year, round_number)
-    session = event.get_session(session_name)
-    session.load(laps=True, telemetry=True, weather=False, messages=False)
+    event, session, metadata, streams = load_replay_session(year, round_number, session_name)
 
     selected_lap, start_s, end_s = lap_window(session, driver, lap_number)
     available_laps = sorted({
@@ -346,8 +416,6 @@ def build_replay_window(year, round_number, session_name, driver, lap_number):
     duration_s = end_s - start_s
     frame_count = min(MAX_FRAMES, max(2, int(math.ceil(duration_s * SAMPLES_PER_SECOND)) + 1))
     sample_times = np.linspace(start_s, end_s, frame_count)
-    metadata = driver_metadata(session)
-    streams = prepared_position_streams(session, metadata)
     timing_positions = prepared_timing_positions(session, metadata)
     if not streams:
         raise ValueError('no public position streams available for this session')

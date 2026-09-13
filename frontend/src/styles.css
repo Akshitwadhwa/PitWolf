@@ -66,6 +66,18 @@
 .dt-energy-hist span{display:block;color:#71867e;font:8px 'DM Mono';letter-spacing:.07em}
 .dt-energy-hist b{display:block;margin-top:7px;color:#f3c85b;font:600 21px 'Space Grotesk'}
 .dt-energy-hist em{display:block;margin-top:6px;color:#82978f;font:8px/1.4 'DM Mono';font-style:normal}
+.dt-team-deploy{display:grid;gap:8px;margin:0 0 16px}
+.dt-team-deploy-row{display:grid;grid-template-columns:140px minmax(0,1fr) 170px;gap:10px;align-items:center;padding:8px 10px;border:1px solid rgba(225,255,245,.1);background:rgba(8,12,14,.4)}
+.dt-team-deploy-row b{color:#eaf7f1;font:600 13px 'Space Grotesk'}
+.dt-team-deploy-row b em{display:block;margin-top:3px;color:#82978f;font:7px 'DM Mono';font-style:normal;letter-spacing:.06em}
+.dt-team-deploy-bar{display:flex;align-items:stretch;gap:1px;min-height:16px}
+.dt-team-deploy-bar i{flex:1;min-width:2px;background:rgba(169,191,255,.45)}
+.dt-team-deploy-bar i.is-attack{background:#ff7043}
+.dt-team-deploy-bar i.is-save{background:#63e6be}
+.dt-team-deploy-bar i.is-delay{background:#a9bfff}
+.dt-team-deploy-bar i.is-take{outline:1px solid #f3c85b}
+.dt-team-deploy-row>em{color:#91a69d;font:8px/1.35 'DM Mono';font-style:normal;text-align:right}
+@media(max-width:900px){.dt-team-deploy-row{grid-template-columns:1fr}}
 .dt-energy-legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0 12px;color:#82978f;font:8px 'DM Mono';letter-spacing:.08em}
 .dt-energy-legend i{display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%}
 .dt-energy-hots{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
@@ -221,4 +233,55 @@ button.dt-story-row{width:100%;margin:0;border:0;background:transparent;text-ali
 button.dt-story-row:hover{background:rgba(99,230,190,.08)}
 @media(max-width:900px){.dt-story-focus{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .dt-clip-panel{margin-bottom:15px}.dt-clip-box{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;margin:14px 0 10px;border:1px solid rgba(225,255,245,.1);background:rgba(225,255,245,.1)}.dt-clip-box div{padding:12px;background:rgba(11,20,21,.92)}.dt-clip-box span{display:block;color:#71867e;font:8px 'DM Mono';letter-spacing:.07em}.dt-clip-box b{display:block;margin-top:7px;color:#63e6be;font:600 16px 'Space Grotesk'}@media(max-width:900px){.dt-clip-box{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.dt-diff-page{display:grid;gap:15px}
+.dt-diff-page .dt-validation-panel{margin-top:0}
+.dt-diff-teams{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.dt-diff-team{padding:10px 12px;border-left:2px solid var(--team);background:rgba(15,29,28,.58)}
+.dt-diff-team b{display:block;color:#eaf7f1;font:8px 'DM Mono';letter-spacing:.08em}
+.dt-diff-team span{display:block;margin-top:6px;color:#9cafa7;font:12px 'Space Grotesk'}
+.dt-diff-driver-head,.dt-diff-driver-row{grid-template-columns:80px 1fr 90px 90px 80px}
+.dt-diff-driver-head-major,.dt-diff-driver-row-major{grid-template-columns:80px 1fr 80px 80px 70px 70px}
+.dt-diff-race-head,.dt-diff-race-row{grid-template-columns:1.6fr 80px 80px 70px 1.4fr}
+.dt-diff-race-head-major,.dt-diff-race-row-major{grid-template-columns:1.5fr 70px 70px 60px 60px 1.4fr}
+button.dt-diff-race-row{width:100%;margin:0;border:0;background:transparent;text-align:left;cursor:pointer}
+button.dt-diff-race-row:hover,button.dt-diff-race-row.is-active{background:rgba(99,230,190,.07)}
+.dt-diff-race-row em{color:#82978f;font:8px 'DM Mono';font-style:normal}
+.dt-diff-case{margin-top:10px;border:1px solid rgba(225,255,245,.1);background:rgba(11,20,21,.7)}
+.dt-diff-case-head{width:100%;display:grid;grid-template-columns:140px 1fr auto;gap:12px;align-items:center;margin:0;padding:11px 12px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.dt-diff-case-head b{color:#eaf7f1;font:700 14px 'Space Grotesk'}
+.dt-diff-case-head span{color:#9cafa7;font:9px 'DM Mono'}
+.dt-diff-case-head em{color:#63e6be;font:8px 'DM Mono';font-style:normal}
+.dt-diff-case p{margin:0;padding:0 12px 10px;color:#c9d8d2;font:12px/1.45 Manrope}
+.dt-diff-actions{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:0 12px 10px;color:#82978f;font:8px 'DM Mono'}
+.dt-diff-actions button{border:1px solid rgba(99,230,190,.4);background:transparent;color:#63e6be;padding:7px 10px;font:8px 'DM Mono';letter-spacing:.08em;cursor:pointer}
+.dt-diff-laps{padding:0 12px 12px}
+.dt-diff-lap-head,.dt-diff-lap-row{display:grid;grid-template-columns:50px 1fr 1fr;gap:10px;padding:6px 0;font:8px/1.4 'DM Mono'}
+.dt-diff-lap-head{color:#71867e;border-bottom:1px solid rgba(225,255,245,.1)}
+.dt-diff-lap-row{color:#a9bfff;border-bottom:1px solid rgba(225,255,245,.06)}
+.dt-diff-lap-row.is-diff{color:#63e6be}
+@media(max-width:900px){
+  .dt-diff-teams,.dt-validation-summary{grid-template-columns:1fr 1fr}
+  .dt-diff-driver-head,.dt-diff-driver-row,.dt-diff-race-head,.dt-diff-race-row,.dt-diff-case-head{grid-template-columns:1fr 1fr}
+}
+.dt-models-page{display:grid;gap:15px}
+.dt-models-page .dt-validation-panel{margin-top:0}
+.dt-models-phases{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.dt-models-phase{padding:12px;border:1px solid rgba(225,255,245,.1);background:rgba(15,29,28,.58)}
+.dt-models-phase span,.dt-models-phase em{display:block;color:#71867e;font:8px 'DM Mono';letter-spacing:.08em}
+.dt-models-phase b{display:block;margin:8px 0 6px;color:#eaf7f1;font:600 14px 'Space Grotesk'}
+.dt-models-phase em{color:#63e6be}
+.dt-models-phase p{margin:8px 0 0;color:#9cafa7;font:11px/1.45 Manrope}
+.dt-models-chart{margin-top:14px}
+.dt-models-axis{fill:#82978f;font:8px 'DM Mono'}
+.dt-models-axis-value{fill:#ffb36c}
+.dt-models-driver-head,.dt-models-driver-row{grid-template-columns:80px 1fr 110px 90px 90px 90px}
+.dt-models-racebar{display:flex;align-items:start;gap:16px;margin:12px 0 4px}
+.dt-models-racebar .ov-select{min-width:280px}
+.dt-models-racebar .ov-notes{margin:0;flex:1}
+.dt-models-pred-head{margin:18px 0 8px;color:#ff7043;font:8px 'DM Mono';letter-spacing:.12em}
+.dt-models-race-driver-head,.dt-models-race-driver-row{grid-template-columns:80px 1.2fr 1fr 90px 80px 70px}
+@media(max-width:900px){
+  .dt-models-phases{grid-template-columns:1fr 1fr}
+  .dt-models-driver-head,.dt-models-driver-row{grid-template-columns:1fr 1fr}
+}
 

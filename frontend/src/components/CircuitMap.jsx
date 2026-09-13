@@ -4,21 +4,58 @@ const WIDTH = 640
 const HEIGHT = 280
 const PAD = 28
 
-export function project(xs, ys) {
+export function circuitBasis(points, rotationDeg = 0) {
+  const degrees = Number(rotationDeg)
+  return {
+    rotate: Number.isFinite(degrees) ? degrees * Math.PI / 180 : 0,
+    flipX: false,
+  }
+}
+
+export function applyCircuitBasis(x, y, basis) {
+  const rotate = basis?.rotate ?? 0
+  const cos = Math.cos(rotate)
+  const sin = Math.sin(rotate)
+  let nextX = (Number(x) * cos) - (Number(y) * sin)
+  let nextY = (Number(x) * sin) + (Number(y) * cos)
+  if (basis?.flipX) nextX = -nextX
+  return { x: nextX, y: nextY }
+}
+
+export function fitCircuitView(points, width = WIDTH, height = HEIGHT, padding = PAD, basis) {
+  const used = basis ?? circuitBasis(points)
+  const oriented = points.map((point) => applyCircuitBasis(point.x, point.y, used))
+  const xs = oriented.map((point) => point.x)
+  const ys = oriented.map((point) => point.y)
   const minX = Math.min(...xs)
   const maxX = Math.max(...xs)
   const minY = Math.min(...ys)
   const maxY = Math.max(...ys)
   const scale = Math.min(
-    (WIDTH - PAD * 2) / Math.max(1, maxX - minX),
-    (HEIGHT - PAD * 2) / Math.max(1, maxY - minY),
+    (width - padding * 2) / Math.max(1, maxX - minX),
+    (height - padding * 2) / Math.max(1, maxY - minY),
   )
-  const ox = (WIDTH - (maxX - minX) * scale) / 2
-  const oy = (HEIGHT - (maxY - minY) * scale) / 2
-  return xs.map((x, i) => ({
-    x: ox + (x - minX) * scale,
-    y: HEIGHT - oy - (ys[i] - minY) * scale,
-  }))
+  const ox = (width - (maxX - minX) * scale) / 2
+  const oy = (height - (maxY - minY) * scale) / 2
+  const project = (x, y) => {
+    const point = applyCircuitBasis(x, y, used)
+    return {
+      x: ox + (point.x - minX) * scale,
+      y: height - oy - (point.y - minY) * scale,
+    }
+  }
+  return {
+    width,
+    height,
+    basis: used,
+    project,
+    outline: points.map((point) => project(point.x, point.y)),
+  }
+}
+
+export function project(xs, ys) {
+  const points = xs.map((x, index) => ({ x, y: ys[index], d: index }))
+  return fitCircuitView(points).outline
 }
 
 function projectWithBounds(xs, ys, bounds) {

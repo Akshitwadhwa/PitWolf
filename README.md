@@ -93,10 +93,13 @@ PitWolf/
 ├── backend/                     # Node.js API and decision services
 ├── analytics/                   # Data preparation, modeling, and evaluation
 ├── supabase/                    # Database schema and backend configuration
-├── BACKEND_HANDOFF.md           # Backend implementation notes
-├── VALIDATION.md                # Validation requirements and checks
-├── database_plan.md             # Data model planning
-└── package.json                 # Root workspace commands
+├── README.md                    # Product idea and run commands
+├── VALIDATION.md                # What we may claim
+├── Simulation.md                # Replay lab design
+├── BATTERY.md                   # Battery → overtake contract
+├── TEAMMATE_LOCAL_DATA.md       # Cache + model setup on another laptop
+├── PROJECT_PROGRESS.md          # Status and demo
+└── package.json
 ```
 
 ## Run locally

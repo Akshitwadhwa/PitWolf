@@ -19,8 +19,34 @@ import sys
 from pathlib import Path
 
 from ai_energy_rollout import rollout
-from energy_transition import CAPACITY_MJ, era_for_year, transition_soc
+from c52_battery import apply_legal_lap
+from energy_transition import CAPACITY_MJ, era_for_year
 from fetch_f1_session import CACHE_DIR
+
+OVERTAKE_WINDOW_S = 1.0
+BATTLE_GAP_S = 1.2
+
+
+def energy_zone_for(step: dict) -> str:
+    if step.get('isPitLap'):
+        return 'PIT'
+    ahead = step.get('ahead')
+    gap_ahead = step.get('gapToAheadS')
+    gap_behind = step.get('gapToBehindS')
+    try:
+        hunt = ahead and gap_ahead is not None and float(gap_ahead) <= OVERTAKE_WINDOW_S
+    except (TypeError, ValueError):
+        hunt = False
+    if hunt:
+        return 'OVERTAKE_WINDOW'
+    try:
+        fight = min(
+            9.0 if gap_ahead is None else float(gap_ahead),
+            9.0 if gap_behind is None else float(gap_behind),
+        ) <= BATTLE_GAP_S
+    except (TypeError, ValueError):
+        fight = False
+    return 'BATTLE' if fight else 'OPEN'
 
 SESSIONS = CACHE_DIR.parent / 'sessions'
 SESSION_ALIASES = {
@@ -122,16 +148,32 @@ def build_actual_laps(payload: dict, driver: str, defender: str) -> list[dict]:
     return rows
 
 
-def build_field_story(payload: dict) -> dict:
-    """Running order, overtakes, and slow laps from cached FastF1 times only.
+def _official_position(row: dict) -> int | None:
+    raw = row.get('position')
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 1 else None
 
+
+def build_field_story(payload: dict) -> dict:
+    """Running order from official lap Position when present.
+
+    Ahead / behind are the cars immediately in front and behind in that
+    lap’s official classification — never classified finish, never GPS.
+    Cumulative lap-time sort is only a fallback for older cache files.
     No team battery is present in this cache. Do not invent SoC.
     """
     by_driver: dict[str, dict[int, dict]] = {}
     for row in payload.get('laps') or []:
         driver = row.get('driver')
         lap = row.get('lapNumber')
-        if not driver or lap is None or row.get('lapTimeS') is None:
+        if not driver or lap is None:
+            continue
+        if row.get('lapTimeS') is None and _official_position(row) is None:
             continue
         by_driver.setdefault(driver, {})[int(lap)] = row
 
@@ -149,31 +191,45 @@ def build_field_story(payload: dict) -> dict:
         if not present:
             continue
         for driver in present:
-            race_time[driver] += float(by_driver[driver][lap]['lapTimeS'])
-        order = sorted((driver for driver in race_time if race_time[driver] > 0), key=lambda driver: race_time[driver])
+            lap_s = by_driver[driver][lap].get('lapTimeS')
+            if lap_s is not None:
+                race_time[driver] += float(lap_s)
+        official = [driver for driver in present if _official_position(by_driver[driver][lap]) is not None]
+        if official:
+            order = sorted(official, key=lambda driver: _official_position(by_driver[driver][lap]))
+        else:
+            order = sorted(
+                (driver for driver in present if race_time[driver] > 0),
+                key=lambda driver: race_time[driver],
+            )
         for index, driver in enumerate(order):
-            if lap not in by_driver[driver]:
-                continue
             row = by_driver[driver][lap]
-            lap_s = float(row['lapTimeS'])
+            raw_time = row.get('lapTimeS')
+            lap_s = None if raw_time is None else float(raw_time)
             ahead = order[index - 1] if index else None
             behind = order[index + 1] if index + 1 < len(order) else None
-            gap = 0.0 if ahead is None else round(race_time[driver] - race_time[ahead], 3)
-            gap_behind = 0.0 if behind is None else round(race_time[behind] - race_time[driver], 3)
+            official_pos = _official_position(row)
+            gap = 0.0 if ahead is None else None
+            gap_behind = 0.0 if behind is None else None
+            if ahead is not None and race_time[driver] > 0 and race_time[ahead] > 0:
+                gap = round(race_time[driver] - race_time[ahead], 3)
+            if behind is not None and race_time[driver] > 0 and race_time[behind] > 0:
+                gap_behind = round(race_time[behind] - race_time[driver], 3)
             closing = 0.0
-            if ahead and lap in by_driver.get(ahead, {}):
+            if lap_s is not None and ahead and by_driver.get(ahead, {}).get(lap, {}).get('lapTimeS') is not None:
                 closing = round(float(by_driver[ahead][lap]['lapTimeS']) - lap_s, 3)
             traces[driver].append({
                 'lap': lap,
                 'lapTimeS': lap_s,
                 'compound': row.get('compound'),
                 'isPitLap': bool(row.get('isPitLap')),
-                'timingPosition': index + 1,
+                'timingPosition': official_pos if official_pos is not None else index + 1,
                 'gapToAheadS': gap,
                 'gapToBehindS': gap_behind,
                 'closingRateS': closing,
                 'ahead': ahead,
                 'behind': behind,
+                'orderSource': 'OFFICIAL_LAP_POSITION' if official_pos is not None else 'CUMULATIVE_LAP_TIME',
             })
 
     drivers_out = []
@@ -187,12 +243,14 @@ def build_field_story(payload: dict) -> dict:
         for step in laps:
             pos = step['timingPosition']
             pos_change = 0 if prev_pos is None else prev_pos - pos
-            delta = None if prev_time is None else round(step['lapTimeS'] - prev_time, 3)
+            lap_s = step.get('lapTimeS')
+            delta = None if prev_time is None or lap_s is None else round(float(lap_s) - prev_time, 3)
+            gap_ahead = step.get('gapToAheadS')
             if step['isPitLap']:
                 event = 'PIT'
             elif pos_change > 0:
                 event = 'OVERTAKE'
-            elif delta is not None and (delta >= 0.25 or (step['closingRateS'] <= -0.2 and step['gapToAheadS'] > 0)):
+            elif delta is not None and (delta >= 0.25 or (step['closingRateS'] <= -0.2 and (gap_ahead or 0) > 0)):
                 event = 'SLOW'
             else:
                 event = 'HOLD'
@@ -200,35 +258,58 @@ def build_field_story(payload: dict) -> dict:
             step['posChange'] = pos_change
             step['deltaToPrevS'] = delta
             prev_pos = pos
-            if not step['isPitLap']:
-                prev_time = step['lapTimeS']
+            if not step['isPitLap'] and lap_s is not None:
+                prev_time = float(lap_s)
 
-        era = era_for_year((payload.get('event') or {}).get('year'))
+        event = payload.get('event') or {}
+        era = era_for_year(event.get('year'))
         soc = float(CAPACITY_MJ)
         used = 0.0
         for step in laps:
+            zone = energy_zone_for(step)
+            step['energyZone'] = zone
             if step['event'] == 'OVERTAKE' or step['closingRateS'] >= 0.15:
                 action = 'ATTACK'
             elif step['event'] == 'SLOW' or step['isPitLap']:
                 action = 'SAVE'
             else:
                 action = 'DELAY'
-            start = soc
-            soc, deploy, harvest = transition_soc(
+            legal = apply_legal_lap(
                 soc, action,
-                {'gapS': step['gapToAheadS'], 'closingRateS': step['closingRateS'], 'pace': 0.55},
+                {
+                    'gapS': step['gapToAheadS'] or 0,
+                    'closingRateS': step['closingRateS'] or 0,
+                    'pace': 0.55,
+                    'year': event.get('year'),
+                    'round': event.get('round'),
+                    'session': payload.get('session') or 'Race',
+                    'lapTimeS': step.get('lapTimeS'),
+                },
+                overtake_active=step['event'] == 'OVERTAKE',
+                harvest_used_mj=0.0,
                 era=era,
             )
-            used += deploy
+            soc = float(legal['socEndMj'])
+            used += float(legal['consumedMj'])
+            law = legal.get('harvestLaw') or {}
             step['modelled'] = {
-                'label': 'MODELLED',
+                'label': 'CONSTRUCTED',
                 'action': action,
-                'startPct': round((start / CAPACITY_MJ) * 100.0, 1),
-                'endPct': round((soc / CAPACITY_MJ) * 100.0, 1),
-                'consumedMj': deploy,
-                'harvestedMj': harvest,
+                'zone': zone,
+                'startPct': round((legal['socStartMj'] / CAPACITY_MJ) * 100.0, 1),
+                'endPct': legal['socLeftPct'],
+                'startMj': legal['socStartMj'],
+                'endMj': legal['socEndMj'],
+                'consumedMj': legal['consumedMj'],
+                'harvestedMj': legal['harvestedMj'],
                 'usedMj': round(used, 3),
-                'note': 'Started at 100% of the 4 MJ window. Not team telemetry.',
+                'clipReason': legal.get('clipReason'),
+                'legalDeployKw': (legal.get('legal') or {}).get('legalDeployKw'),
+                'brakeSlices': law.get('brakes'),
+                'maxSliceMj': law.get('sliceMj'),
+                'lapHarvestCapMj': law.get('lapHarvestMj'),
+                'citation': 'C5.2.7–C5.2.11',
+                'note': law.get('note') or legal.get('note'),
             }
 
         overtake_laps = [step['lap'] for step in laps if step['event'] == 'OVERTAKE']
@@ -252,7 +333,7 @@ def build_field_story(payload: dict) -> dict:
             'laps': laps,
         })
     return {
-        'provenance': 'REAL lap times, order, gaps · MODELLED ES starts at 100% of the 4 MJ window and is not team battery',
+        'provenance': 'REAL lap times, order, gaps · CONSTRUCTED 4 MJ C5.2 store from lights-out 100%. Driver spend scaled onto legal brake slices. Not team battery.',
         'drivers': drivers_out,
     }
 
@@ -279,8 +360,15 @@ def clip_cached(year: int | None, round_number: int | None, session_name: str,
     # Lights-out is a full 4 MJ C5.2 window (100%). The model then
     # consumes and harvests from actual timed laps — not team SoC.
     start = 4.0 if start_soc_mj is None else float(start_soc_mj)
+    for row in racing:
+        row['year'] = year
+        row['round'] = event.get('round')
+        row['session'] = payload.get('session') or session_name
+        row['lapTimeS'] = row.get('ourLapTimeS')
     result = rollout({
         'year': year,
+        'round': event.get('round'),
+        'session': payload.get('session') or session_name,
         'policy': policy,
         'laps': racing,
         'startSocMj': start,
